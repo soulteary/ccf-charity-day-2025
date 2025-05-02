@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>自动运行的猜拳游戏</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f0f0;
+            padding: 20px;
+        }
+        
+        #game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        
+        #canvas {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+        
+        #score-board {
+            display: flex;
+            justify-content: space-between;
+            width: 300px;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        
+        #result {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            height: 30px;
+        }
+        
+        #history {
+            width: 300px;
+            max-height: 150px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .history-item {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .win {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        
+        .lose {
+            color: #F44336;
+        }
+        
+        .draw {
+            color: #FFC107;
+        }
+        
+        #controls {
+            margin-top: 10px;
+        }
+        
+        #settings {
+            margin-top: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            width: 300px;
+        }
+        
+        #statistics {
+            margin-top: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            width: 300px;
+        }
+        
+        .stats-container {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        
+        progress {
+            width: 100%;
+            height: 20px;
+            margin-top: 5px;
+        }
+        
+        button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 10px 15px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        
+        #animation-container {
+            position: absolute;
+            pointer-events: none;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            z-index: 100;
+            overflow: hidden;
+        }
+        
+        .choice-text {
+            font-size: 60px;
+            line-height: 1;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>自动运行的猜拳游戏</h1>
+    <div id="animation-container"></div>
+    <div id="game-container">
+        <canvas id="canvas" width="500" height="300"></canvas>
+        <div id="score-board">
+            <div id="player1-score">玩家 1: 0</div>
+            <div id="player2-score">玩家 2: 0</div>
+        </div>
+        <div id="result"></div>
+        <div id="history">
+            <h3>对战历史</h3>
+            <div id="history-content"></div>
+        </div>
+        <div id="controls">
+            <button id="startBtn">开始自动对战</button>
+            <button id="stopBtn" disabled>停止</button>
+            <button id="resetBtn">重置</button>
+            <button id="manualBtn">手动对战</button>
+        </div>
+        <div id="settings">
+            <h3>游戏设置</h3>
+            <div>
+                <label for="roundsInput">回合数:</label>
+                <input type="number" id="roundsInput" min="1" max="50" value="10">
+            </div>
+            <div>
+                <label for="speedInput">速度:</label>
+                <input type="range" id="speedInput" min="500" max="3000" step="100" value="2000">
+                <span id="speedValue">2秒/回合</span>
+            </div>
+        </div>
+        <div id="statistics">
+            <h3>统计数据</h3>
+            <div class="stats-container">
+                <div>石头:</div>
+                <div id="rock-stats">0 (0%)</div>
+            </div>
+            <progress id="rock-progress" value="0" max="100"></progress>
+            <div class="stats-container">
+                <div>剪刀:</div>
+                <div id="scissors-stats">0 (0%)</div>
+            </div>
+            <progress id="scissors-progress" value="0" max="100"></progress>
+            <div class="stats-container">
+                <div>布:</div>
+                <div id="paper-stats">0 (0%)</div>
+            </div>
+            <progress id="paper-progress" value="0" max="100"></progress>
+        </div>
+    </div>
+
+    <script>
+        // 获取DOM元素
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const resultElement = document.getElementById('result');
+        const player1ScoreElement = document.getElementById('player1-score');
+        const player2ScoreElement = document.getElementById('player2-score');
+        const historyContentElement = document.getElementById('history-content');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        
+        // 统计数据元素
+        const rockStats = document.getElementById('rock-stats');
+        const scissorsStats = document.getElementById('scissors-stats');
+        const paperStats = document.getElementById('paper-stats');
+        const rockProgress = document.getElementById('rock-progress');
+        const scissorsProgress = document.getElementById('scissors-progress');
+        const paperProgress = document.getElementById('paper-progress');
+        
+        // 动画容器
+        const animationContainer = document.getElementById('animation-container');
+
+        // 游戏状态
+        const gameState = {
+            player1Score: 0,
+            player2Score: 0,
+            isRunning: false,
+            animationId: null,
+            autoPlayInterval: null,
+            roundCount: 0,
+            maxRounds: 10,
+            speed: 2000,
+            mode: 'auto',
+            stats: {
+                rock: 0,
+                scissors: 0,
+                paper: 0,
+                total: 0
+            }
+        };
+
+        // 游戏选项
+        const choices = ['石头', '剪刀', '布'];
+        const choiceSymbols = ['✊', '✌️', '✋'];
+        
+        // 初始化游戏
+        function init() {
+            resetGame();
+            
+            // 获取新增的DOM元素
+            const manualBtn = document.getElementById('manualBtn');
+            const roundsInput = document.getElementById('roundsInput');
+            const speedInput = document.getElementById('speedInput');
+            const speedValue = document.getElementById('speedValue');
+            
+            // 事件监听
+            startBtn.addEventListener('click', startAutoPlay);
+            stopBtn.addEventListener('click', stopAutoPlay);
+            resetBtn.addEventListener('click', resetGame);
+            manualBtn.addEventListener('click', startManualPlay);
+            
+            // 设置回合数
+            roundsInput.addEventListener('change', function() {
+                gameState.maxRounds = parseInt(this.value);
+            });
+            
+            // 设置速度
+            speedInput.addEventListener('input', function() {
+                gameState.speed = parseInt(this.value);
+                speedValue.textContent = (gameState.speed / 1000) + '秒/回合';
+                
+                // 如果游戏正在运行，重新设置定时器
+                if (gameState.isRunning && gameState.mode === 'auto') {
+                    stopAutoPlay();
+                    startAutoPlay();
+                }
+            });
+            
+            // 初始绘制
+            drawInitialState();
+            
+            // 初始化统计数据显示
+            updateStats();
+        }
+
+        // 绘制初始状态
+        function drawInitialState() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.fillStyle = '#e0e0e0';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.font = '20px Arial';
+            ctx.fillStyle = '#333';
+            ctx.textAlign = 'center';
+            ctx.fillText('点击"开始自动对战"按钮开始游戏', canvas.width / 2, canvas.height / 2);
+        }
+
+        // 绘制游戏状态
+        function drawGame(player1Choice, player2Choice) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制背景
+            ctx.fillStyle = '#e0e0e0';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制分割线
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 30);
+            ctx.lineTo(canvas.width / 2, canvas.height - 30);
+            ctx.strokeStyle = '#999';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // 绘制玩家1的选择
+            ctx.font = '18px Arial';
+            ctx.fillStyle = '#333';
+            ctx.textAlign = 'center';
+            ctx.fillText('玩家 1', canvas.width * 0.25, 30);
+            
+            if (player1Choice !== undefined) {
+                ctx.font = '60px Arial';
+                ctx.fillText(choiceSymbols[player1Choice], canvas.width * 0.25, canvas.height / 2);
+                ctx.font = '18px Arial';
+                ctx.fillText(choices[player1Choice], canvas.width * 0.25, canvas.height - 50);
+            }
+            
+            // 绘制玩家2的选择
+            ctx.font = '18px Arial';
+            ctx.fillText('玩家 2', canvas.width * 0.75, 30);
+            
+            if (player2Choice !== undefined) {
+                ctx.font = '60px Arial';
+                ctx.fillText(choiceSymbols[player2Choice], canvas.width * 0.75, canvas.height / 2);
+                ctx.font = '18px Arial';
+                ctx.fillText(choices[player2Choice], canvas.width * 0.75, canvas.height - 50);
+            }
+        }
+
+        // 更新分数显示
+        function updateScoreBoard() {
+            player1ScoreElement.textContent = `玩家 1: ${gameState.player1Score}`;
+            player2ScoreElement.textContent = `玩家 2: ${gameState.player2Score}`;
+        }
+
+        // 添加历史记录
+        function addHistory(player1Choice, player2Choice, result) {
+            const historyItem = document.createElement('div');
+            historyItem.classList.add('history-item');
+            
+            let resultText = '';
+            let resultClass = '';
+            if (result === 1) {
+                resultText = '玩家1赢';
+                resultClass = 'win';
+            } else if (result === 2) {
+                resultText = '玩家2赢';
+                resultClass = 'lose';
+            } else {
+                resultText = '平局';
+                resultClass = 'draw';
+            }
+            
+            historyItem.innerHTML = `第${gameState.roundCount}回合: 玩家1选择<strong>${choices[player1Choice]}</strong>, 玩家2选择<strong>${choices[player2Choice]}</strong> - <span class="${resultClass}">${resultText}</span>`;
+            
+            historyContentElement.prepend(historyItem);
+            
+            // 限制历史记录数量
+            if (historyContentElement.children.length > 20) {
+                historyContentElement.removeChild(historyContentElement.lastChild);
+            }
+        }
+
+        // 获取随机选择
+        function getRandomChoice() {
+            return Math.floor(Math.random() * 3);
+        }
+
+        // 确定胜者
+        function determineWinner(choice1, choice2) {
+            if (choice1 === choice2) return 0; // 平局
+            
+            if (
+                (choice1 === 0 && choice2 === 1) || // 石头 vs 剪刀
+                (choice1 === 1 && choice2 === 2) || // 剪刀 vs 布
+                (choice1 === 2 && choice2 === 0)    // 布 vs 石头
+            ) {
+                return 1; // 玩家1获胜
+            } else {
+                return 2; // 玩家2获胜
+            }
+        }
+
+        // 更新统计数据显示
+        function updateStats() {
+            // 计算百分比
+            const rockPercent = gameState.stats.total > 0 ? Math.round((gameState.stats.rock / gameState.stats.total) * 100) : 0;
+            const scissorsPercent = gameState.stats.total > 0 ? Math.round((gameState.stats.scissors / gameState.stats.total) * 100) : 0;
+            const paperPercent = gameState.stats.total > 0 ? Math.round((gameState.stats.paper / gameState.stats.total) * 100) : 0;
+            
+            // 更新显示
+            rockStats.textContent = `${gameState.stats.rock} (${rockPercent}%)`;
+            scissorsStats.textContent = `${gameState.stats.scissors} (${scissorsPercent}%)`;
+            paperStats.textContent = `${gameState.stats.paper} (${paperPercent}%)`;
+            
+            // 更新进度条
+            rockProgress.value = rockPercent;
+            scissorsProgress.value = scissorsPercent;
+            paperProgress.value = paperPercent;
+        }
+        
+        // 创建胜利动画
+        function createWinnerAnimation(winner) {
+            // 创建爆炸效果
+            const explosion = document.createElement('div');
+            explosion.style.position = 'absolute';
+            explosion.style.width = '100px';
+            explosion.style.height = '100px';
+            explosion.style.borderRadius = '50%';
+            explosion.style.background = 'radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(255,193,7,0.7) 30%, rgba(255,87,34,0) 70%)';
+            explosion.style.boxShadow = '0 0 20px rgba(255, 193, 7, 0.7)';
+            explosion.style.transform = 'scale(0)';
+            explosion.style.transition = 'transform 0.5s ease-out';
+            
+            // 位置取决于获胜方
+            if (winner === 1) {
+                explosion.style.left = '25%';
+            } else if (winner === 2) {
+                explosion.style.left = '75%';
+            } else {
+                return; // 平局不显示动画
+            }
+            
+            explosion.style.top = '50%';
+            explosion.style.marginLeft = '-50px';
+            explosion.style.marginTop = '-50px';
+            
+            // 添加到容器
+            animationContainer.appendChild(explosion);
+            
+            // 触发动画
+            setTimeout(() => {
+                explosion.style.transform = 'scale(3)';
+                
+                // 动画结束后删除元素
+                setTimeout(() => {
+                    animationContainer.removeChild(explosion);
+                }, 600);
+            }, 10);
+        }
+        
+        // 播放一轮
+        function playRound() {
+            if (!gameState.isRunning) return;
+            
+            gameState.roundCount++;
+            
+            const player1Choice = getRandomChoice();
+            const player2Choice = getRandomChoice();
+            
+            // 更新统计数据
+            gameState.stats.total += 2; // 两个玩家各一次选择
+            if (player1Choice === 0) gameState.stats.rock++;
+            if (player1Choice === 1) gameState.stats.scissors++;
+            if (player1Choice === 2) gameState.stats.paper++;
+            if (player2Choice === 0) gameState.stats.rock++;
+            if (player2Choice === 1) gameState.stats.scissors++;
+            if (player2Choice === 2) gameState.stats.paper++;
+            updateStats();
+            
+            // 绘制选择
+            drawGame(player1Choice, player2Choice);
+            
+            // 确定胜者
+            const winner = determineWinner(player1Choice, player2Choice);
+            
+            // 创建动画
+            createWinnerAnimation(winner);
+            
+            // 更新分数
+            if (winner === 1) {
+                gameState.player1Score++;
+                resultElement.textContent = '玩家1获胜!';
+                resultElement.style.color = '#4CAF50';
+            } else if (winner === 2) {
+                gameState.player2Score++;
+                resultElement.textContent = '玩家2获胜!';
+                resultElement.style.color = '#2196F3';
+            } else {
+                resultElement.textContent = '平局!';
+                resultElement.style.color = '#FFC107';
+            }
+            
+            // 更新分数板
+            updateScoreBoard();
+            
+            // 添加历史记录
+            addHistory(player1Choice, player2Choice, winner);
+            
+            // 检查是否达到最大回合数
+            if (gameState.roundCount >= gameState.maxRounds) {
+                stopAutoPlay();
+                
+                // 显示最终结果
+                let finalResult = '';
+                if (gameState.player1Score > gameState.player2Score) {
+                    finalResult = `游戏结束! 玩家1获胜 (${gameState.player1Score} vs ${gameState.player2Score})`;
+                } else if (gameState.player2Score > gameState.player1Score) {
+                    finalResult = `游戏结束! 玩家2获胜 (${gameState.player1Score} vs ${gameState.player2Score})`;
+                } else {
+                    finalResult = `游戏结束! 平局 (${gameState.player1Score} vs ${gameState.player2Score})`;
+                }
+                
+                resultElement.textContent = finalResult;
+                resultElement.style.color = '#FF5722';
+            }
+        }
+
+        // 手动添加玩家选择
+        function handlePlayerChoice(choice) {
+            if (!gameState.isRunning || gameState.mode !== 'manual') return;
+            
+            gameState.roundCount++;
+            
+            // 玩家1的选择是传入的参数
+            const player1Choice = choice;
+            // 玩家2仍然是随机的
+            const player2Choice = getRandomChoice();
+            
+            // 更新统计数据
+            gameState.stats.total += 2; // 两个玩家各一次选择
+            if (player1Choice === 0) gameState.stats.rock++;
+            if (player1Choice === 1) gameState.stats.scissors++;
+            if (player1Choice === 2) gameState.stats.paper++;
+            if (player2Choice === 0) gameState.stats.rock++;
+            if (player2Choice === 1) gameState.stats.scissors++;
+            if (player2Choice === 2) gameState.stats.paper++;
+            updateStats();
+            
+            // 绘制选择
+            drawGame(player1Choice, player2Choice);
+            
+            // 确定胜者
+            const winner = determineWinner(player1Choice, player2Choice);
+            
+            // 创建动画
+            createWinnerAnimation(winner);
+            
+            // 更新分数
+            if (winner === 1) {
+                gameState.player1Score++;
+                resultElement.textContent = '玩家1获胜!';
+                resultElement.style.color = '#4CAF50';
+            } else if (winner === 2) {
+                gameState.player2Score++;
+                resultElement.textContent = '玩家2获胜!';
+                resultElement.style.color = '#2196F3';
+            } else {
+                resultElement.textContent = '平局!';
+                resultElement.style.color = '#FFC107';
+            }
+            
+            // 更新分数板
+            updateScoreBoard();
+            
+            // 添加历史记录
+            addHistory(player1Choice, player2Choice, winner);
+            
+            // 检查是否达到最大回合数
+            if (gameState.roundCount >= gameState.maxRounds) {
+                stopAutoPlay();
+                
+                // 显示最终结果
+                let finalResult = '';
+                if (gameState.player1Score > gameState.player2Score) {
+                    finalResult = `游戏结束! 玩家1获胜 (${gameState.player1Score} vs ${gameState.player2Score})`;
+                } else if (gameState.player2Score > gameState.player1Score) {
+                    finalResult = `游戏结束! 玩家2获胜 (${gameState.player1Score} vs ${gameState.player2Score})`;
+                } else {
+                    finalResult = `游戏结束! 平局 (${gameState.player1Score} vs ${gameState.player2Score})`;
+                }
+                
+                resultElement.textContent = finalResult;
+                resultElement.style.color = '#FF5722';
+            }
+        }
+        
+        // 开始手动游戏模式
+        function startManualPlay() {
+            stopAutoPlay(); // 确保自动游戏已停止
+            
+            gameState.mode = 'manual';
+            gameState.isRunning = true;
+            
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            
+            // 绘制选择界面
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制背景
+            ctx.fillStyle = '#e0e0e0';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制提示文字
+            ctx.font = '24px Arial';
+            ctx.fillStyle = '#333';
+            ctx.textAlign = 'center';
+            ctx.fillText('选择你的出手:', canvas.width / 2, 50);
+            
+            // 绘制选择按钮
+            const buttonWidth = 80;
+            const buttonHeight = 80;
+            const spacing = 30;
+            const totalWidth = buttonWidth * 3 + spacing * 2;
+            const startX = (canvas.width - totalWidth) / 2;
+            const startY = 100;
+            
+            // 绘制石头按钮
+            ctx.font = '60px Arial';
+            ctx.fillText(choiceSymbols[0], startX + buttonWidth / 2, startY + buttonHeight / 2 + 20);
+            ctx.font = '16px Arial';
+            ctx.fillText('石头', startX + buttonWidth / 2, startY + buttonHeight + 20);
+            
+            // 绘制剪刀按钮
+            ctx.font = '60px Arial';
+            ctx.fillText(choiceSymbols[1], startX + buttonWidth + spacing + buttonWidth / 2, startY + buttonHeight / 2 + 20);
+            ctx.font = '16px Arial';
+            ctx.fillText('剪刀', startX + buttonWidth + spacing + buttonWidth / 2, startY + buttonHeight + 20);
+            
+            // 绘制布按钮
+            ctx.font = '60px Arial';
+            ctx.fillText(choiceSymbols[2], startX + (buttonWidth + spacing) * 2 + buttonWidth / 2, startY + buttonHeight / 2 + 20);
+            ctx.font = '16px Arial';
+            ctx.fillText('布', startX + (buttonWidth + spacing) * 2 + buttonWidth / 2, startY + buttonHeight + 20);
+            
+            // 添加点击事件监听器
+            canvas.onclick = function(event) {
+                const rect = canvas.getBoundingClientRect();
+                const x = event.clientX - rect.left;
+                const y = event.clientY - rect.top;
+                
+                // 检查点击了哪个按钮
+                if (y >= startY && y <= startY + buttonHeight) {
+                    if (x >= startX && x <= startX + buttonWidth) {
+                        // 石头
+                        handlePlayerChoice(0);
+                    } else if (x >= startX + buttonWidth + spacing && x <= startX + buttonWidth * 2 + spacing) {
+                        // 剪刀
+                        handlePlayerChoice(1);
+                    } else if (x >= startX + (buttonWidth + spacing) * 2 && x <= startX + (buttonWidth + spacing) * 2 + buttonWidth) {
+                        // 布
+                        handlePlayerChoice(2);
+                    }
+                }
+            };
+            
+            // 显示提示
+            resultElement.textContent = '请选择你的出手...';
+            resultElement.style.color = '#333';
+        }
+        
+        // 开始自动播放
+        function startAutoPlay() {
+            if (gameState.isRunning) return;
+            
+            // 移除可能存在的点击事件监听器
+            canvas.onclick = null;
+            
+            gameState.mode = 'auto';
+            gameState.isRunning = true;
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            
+            // 设置定时器，使用设置的速度
+            gameState.autoPlayInterval = setInterval(playRound, gameState.speed);
+            
+            // 立即播放第一轮
+            playRound();
+        }
+
+        // 停止自动播放
+        function stopAutoPlay() {
+            gameState.isRunning = false;
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            
+            // 移除可能存在的点击事件监听器
+            canvas.onclick = null;
+            
+            if (gameState.autoPlayInterval) {
+                clearInterval(gameState.autoPlayInterval);
+                gameState.autoPlayInterval = null;
+            }
+        }
+
+        // 重置游戏
+        function resetGame() {
+            stopAutoPlay();
+            
+            // 移除可能存在的点击事件监听器
+            canvas.onclick = null;
+            
+            // 重置状态
+            gameState.player1Score = 0;
+            gameState.player2Score = 0;
+            gameState.roundCount = 0;
+            gameState.stats = {
+                rock: 0,
+                scissors: 0,
+                paper: 0,
+                total: 0
+            };
+            
+            // 清空历史记录
+            historyContentElement.innerHTML = '';
+            
+            // 重置结果显示
+            resultElement.textContent = '';
+            
+            // 更新分数板
+            updateScoreBoard();
+            
+            // 更新统计数据
+            updateStats();
+            
+            // 重绘画布
+            drawInitialState();
+            
+            // 启用所有按钮
+            startBtn.disabled = false;
+            document.getElementById('manualBtn').disabled = false;
+        }
+
+        // 初始化游戏
+        window.onload = init;
+    </script>
+</body>
+</html>
