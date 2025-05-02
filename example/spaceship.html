@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto Space Shooter</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #000;
+            overflow: hidden;
+        }
+        canvas {
+            border: 2px solid #333;
+            background-color: #000;
+        }
+        .game-container {
+            position: relative;
+        }
+        .score-display {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <canvas id="gameCanvas" width="600" height="800"></canvas>
+        <div class="score-display">Score: <span id="score">0</span></div>
+    </div>
+
+    <script>
+        // Game setup
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        
+        // Game state
+        let score = 0;
+        let gameOver = false;
+        let gameStarted = false;
+        
+        // Player ship
+        const player = {
+            x: canvas.width / 2,
+            y: canvas.height - 100,
+            width: 50,
+            height: 50,
+            speed: 5,
+            dx: 1, // Direction of automatic movement
+            color: '#3498db',
+            bullets: [],
+            lastShot: 0,
+            shootDelay: 300, // Time between shots in ms
+            lives: 3
+        };
+        
+        // Enemy settings
+        const enemies = [];
+        const enemyTypes = [
+            { color: '#e74c3c', width: 40, height: 40, speed: 2, points: 10, hp: 1 },
+            { color: '#e67e22', width: 50, height: 50, speed: 1.5, points: 20, hp: 2 },
+            { color: '#9b59b6', width: 60, height: 60, speed: 1, points: 30, hp: 3 }
+        ];
+        
+        let lastEnemySpawn = 0;
+        let enemySpawnDelay = 1000;
+        
+        // Stars background
+        const stars = [];
+        const numStars = 100;
+        
+        // Initialize stars
+        for (let i = 0; i < numStars; i++) {
+            stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                radius: Math.random() * 3,
+                speed: 0.5 + Math.random() * 1.5
+            });
+        }
+        
+        // Game functions
+        function drawStars() {
+            ctx.fillStyle = 'white';
+            for (const star of stars) {
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Move stars downward
+                star.y += star.speed;
+                
+                // Reset star position if it goes off screen
+                if (star.y > canvas.height) {
+                    star.y = 0;
+                    star.x = Math.random() * canvas.width;
+                }
+            }
+        }
+        
+        function drawPlayer() {
+            ctx.fillStyle = player.color;
+            
+            // Draw ship body
+            ctx.beginPath();
+            ctx.moveTo(player.x, player.y - player.height / 2);
+            ctx.lineTo(player.x - player.width / 2, player.y + player.height / 2);
+            ctx.lineTo(player.x + player.width / 2, player.y + player.height / 2);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Draw engine flame
+            ctx.fillStyle = '#f39c12';
+            ctx.beginPath();
+            ctx.moveTo(player.x - 10, player.y + player.height / 2);
+            ctx.lineTo(player.x, player.y + player.height / 2 + 15);
+            ctx.lineTo(player.x + 10, player.y + player.height / 2);
+            ctx.closePath();
+            ctx.fill();
+        }
+        
+        function drawBullets() {
+            ctx.fillStyle = '#2ecc71';
+            for (const bullet of player.bullets) {
+                ctx.fillRect(bullet.x - 2, bullet.y, 4, 15);
+            }
+        }
+        
+        function drawEnemies() {
+            for (const enemy of enemies) {
+                ctx.fillStyle = enemy.color;
+                
+                // Draw enemy ship
+                if (enemy.type === 0) {
+                    // Simple triangle for basic enemies
+                    ctx.beginPath();
+                    ctx.moveTo(enemy.x, enemy.y + enemy.height / 2);
+                    ctx.lineTo(enemy.x - enemy.width / 2, enemy.y - enemy.height / 2);
+                    ctx.lineTo(enemy.x + enemy.width / 2, enemy.y - enemy.height / 2);
+                    ctx.closePath();
+                    ctx.fill();
+                } else if (enemy.type === 1) {
+                    // Diamond shape for medium enemies
+                    ctx.beginPath();
+                    ctx.moveTo(enemy.x, enemy.y - enemy.height / 2);
+                    ctx.lineTo(enemy.x + enemy.width / 2, enemy.y);
+                    ctx.lineTo(enemy.x, enemy.y + enemy.height / 2);
+                    ctx.lineTo(enemy.x - enemy.width / 2, enemy.y);
+                    ctx.closePath();
+                    ctx.fill();
+                } else {
+                    // Circle for advanced enemies
+                    ctx.beginPath();
+                    ctx.arc(enemy.x, enemy.y, enemy.width / 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Add details to the advanced enemy
+                    ctx.fillStyle = '#000';
+                    ctx.beginPath();
+                    ctx.arc(enemy.x, enemy.y, enemy.width / 3, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.fillStyle = enemy.color;
+                    ctx.beginPath();
+                    ctx.arc(enemy.x, enemy.y, enemy.width / 6, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                
+                // Draw HP bar for enemies with more than 1 HP
+                if (enemy.hp > 1) {
+                    const hpBarWidth = enemy.width;
+                    const hpBarHeight = 5;
+                    const hpPercentage = enemy.hp / enemyTypes[enemy.type].hp;
+                    
+                    // HP bar background
+                    ctx.fillStyle = '#555';
+                    ctx.fillRect(
+                        enemy.x - hpBarWidth / 2,
+                        enemy.y - enemy.height / 2 - 10,
+                        hpBarWidth,
+                        hpBarHeight
+                    );
+                    
+                    // HP bar fill
+                    ctx.fillStyle = '#2ecc71';
+                    ctx.fillRect(
+                        enemy.x - hpBarWidth / 2,
+                        enemy.y - enemy.height / 2 - 10,
+                        hpBarWidth * hpPercentage,
+                        hpBarHeight
+                    );
+                }
+            }
+        }
+        
+        function movePlayer() {
+            // Automatic movement (bouncing left and right)
+            player.x += player.speed * player.dx;
+            
+            // Reverse direction when hitting edges
+            if (player.x > canvas.width - player.width / 2 || player.x < player.width / 2) {
+                player.dx *= -1;
+            }
+        }
+        
+        function moveBullets() {
+            for (let i = player.bullets.length - 1; i >= 0; i--) {
+                player.bullets[i].y -= player.bullets[i].speed;
+                
+                // Remove bullets that go off screen
+                if (player.bullets[i].y < 0) {
+                    player.bullets.splice(i, 1);
+                }
+            }
+        }
+        
+        function moveEnemies() {
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                enemies[i].y += enemies[i].speed;
+                
+                // Random horizontal movement
+                enemies[i].x += Math.sin(Date.now() * 0.001 + enemies[i].randomOffset) * 1.5;
+                
+                // Keep enemies within canvas bounds
+                if (enemies[i].x < enemies[i].width / 2) {
+                    enemies[i].x = enemies[i].width / 2;
+                } else if (enemies[i].x > canvas.width - enemies[i].width / 2) {
+                    enemies[i].x = canvas.width - enemies[i].width / 2;
+                }
+                
+                // Remove enemies that go off screen
+                if (enemies[i].y > canvas.height + enemies[i].height) {
+                    enemies.splice(i, 1);
+                }
+            }
+        }
+        
+        function playerShoot() {
+            const currentTime = Date.now();
+            
+            if (currentTime - player.lastShot > player.shootDelay) {
+                player.bullets.push({
+                    x: player.x,
+                    y: player.y - player.height / 2,
+                    speed: 10
+                });
+                
+                player.lastShot = currentTime;
+            }
+        }
+        
+        function spawnEnemy() {
+            const currentTime = Date.now();
+            
+            if (currentTime - lastEnemySpawn > enemySpawnDelay) {
+                const typeIndex = Math.floor(Math.random() * enemyTypes.length);
+                const enemyType = enemyTypes[typeIndex];
+                
+                enemies.push({
+                    x: Math.random() * (canvas.width - enemyType.width) + enemyType.width / 2,
+                    y: -enemyType.height,
+                    width: enemyType.width,
+                    height: enemyType.height,
+                    color: enemyType.color,
+                    speed: enemyType.speed,
+                    points: enemyType.points,
+                    hp: enemyType.hp,
+                    type: typeIndex,
+                    randomOffset: Math.random() * 10 // For sine wave movement
+                });
+                
+                lastEnemySpawn = currentTime;
+                
+                // Gradually decrease spawn delay to increase difficulty
+                if (enemySpawnDelay > 500) {
+                    enemySpawnDelay -= 10;
+                }
+            }
+        }
+        
+        function checkCollisions() {
+            // Check bullet-enemy collisions
+            for (let i = player.bullets.length - 1; i >= 0; i--) {
+                const bullet = player.bullets[i];
+                
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const enemy = enemies[j];
+                    
+                    // Simple collision detection
+                    const dx = bullet.x - enemy.x;
+                    const dy = bullet.y - enemy.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < enemy.width / 2 + 5) {
+                        // Remove bullet
+                        player.bullets.splice(i, 1);
+                        
+                        // Reduce enemy HP
+                        enemy.hp -= 1;
+                        
+                        // If enemy HP reaches 0, remove enemy and add score
+                        if (enemy.hp <= 0) {
+                            score += enemy.points;
+                            scoreElement.textContent = score;
+                            
+                            // Create explosion effect
+                            createExplosion(enemy.x, enemy.y, enemy.color);
+                            
+                            enemies.splice(j, 1);
+                        }
+                        
+                        break;
+                    }
+                }
+            }
+            
+            // Check player-enemy collisions
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemy = enemies[i];
+                
+                const dx = player.x - enemy.x;
+                const dy = player.y - enemy.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < (player.width + enemy.width) / 3) {
+                    // Create explosion effect
+                    createExplosion(enemy.x, enemy.y, enemy.color);
+                    
+                    // Remove enemy
+                    enemies.splice(i, 1);
+                    
+                    // Reduce player lives
+                    player.lives -= 1;
+                    
+                    if (player.lives <= 0) {
+                        gameOver = true;
+                    }
+                }
+            }
+        }
+        
+        // Particles array for explosions
+        const particles = [];
+        
+        function createExplosion(x, y, color) {
+            const particleCount = 15;
+            
+            for (let i = 0; i < particleCount; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 1 + Math.random() * 3;
+                
+                particles.push({
+                    x,
+                    y,
+                    dx: Math.cos(angle) * speed,
+                    dy: Math.sin(angle) * speed,
+                    radius: 1 + Math.random() * 3,
+                    color,
+                    alpha: 1,
+                    decay: 0.01 + Math.random() * 0.03
+                });
+            }
+        }
+        
+        function updateParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                
+                p.x += p.dx;
+                p.y += p.dy;
+                p.alpha -= p.decay;
+                
+                if (p.alpha <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+        }
+        
+        function drawParticles() {
+            for (const p of particles) {
+                ctx.save();
+                ctx.globalAlpha = p.alpha;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+        
+        function drawLives() {
+            ctx.fillStyle = player.color;
+            
+            for (let i = 0; i < player.lives; i++) {
+                const x = 50 + i * 30;
+                const y = 30;
+                
+                // Draw small ship icon for each life
+                ctx.beginPath();
+                ctx.moveTo(x, y - 10);
+                ctx.lineTo(x - 10, y + 10);
+                ctx.lineTo(x + 10, y + 10);
+                ctx.closePath();
+                ctx.fill();
+            }
+        }
+        
+        function drawGameOver() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.fillStyle = 'white';
+            ctx.font = '48px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2);
+            
+            ctx.font = '24px Arial';
+            ctx.fillText(`Final Score: ${score}`, canvas.width / 2, canvas.height / 2 + 50);
+            
+            ctx.font = '18px Arial';
+            ctx.fillText('Game will restart in 3 seconds...', canvas.width / 2, canvas.height / 2 + 100);
+        }
+        
+        function drawStartScreen() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.fillStyle = 'white';
+            ctx.font = '48px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('SPACE SHOOTER', canvas.width / 2, canvas.height / 2 - 50);
+            
+            ctx.font = '24px Arial';
+            ctx.fillText('Auto-play mode', canvas.width / 2, canvas.height / 2);
+            
+            ctx.font = '18px Arial';
+            ctx.fillText('Game starting in 3 seconds...', canvas.width / 2, canvas.height / 2 + 100);
+        }
+        
+        function resetGame() {
+            score = 0;
+            scoreElement.textContent = score;
+            
+            player.lives = 3;
+            player.x = canvas.width / 2;
+            player.y = canvas.height - 100;
+            player.bullets = [];
+            
+            enemies.length = 0;
+            particles.length = 0;
+            
+            enemySpawnDelay = 1000;
+            gameOver = false;
+        }
+        
+        // Game loop
+        function update() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw stars background
+            drawStars();
+            
+            if (!gameStarted) {
+                drawStartScreen();
+                setTimeout(() => {
+                    gameStarted = true;
+                }, 3000);
+            } else if (!gameOver) {
+                // Update game objects
+                movePlayer();
+                playerShoot();
+                moveBullets();
+                spawnEnemy();
+                moveEnemies();
+                checkCollisions();
+                updateParticles();
+                
+                // Draw game objects
+                drawPlayer();
+                drawBullets();
+                drawEnemies();
+                drawParticles();
+                drawLives();
+            } else {
+                // Draw game over screen
+                drawGameOver();
+                
+                // Reset game after delay
+                setTimeout(() => {
+                    resetGame();
+                }, 3000);
+            }
+            
+            // Continue the game loop
+            requestAnimationFrame(update);
+        }
+        
+        // Start the game
+        update();
+    </script>
+</body>
+</html>
