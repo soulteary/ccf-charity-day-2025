@@ -64,25 +64,23 @@ class GPUMCTS:
         batch_size = tf.shape(boards)[0]
         empty_positions = tf.where(tf.equal(boards, 0))  # 获取所有空位的位置
         empty_positions = tf.cast(empty_positions, tf.int32)  # 确保 empty_positions 为 int32 类型
-        moves = tf.TensorArray(tf.int32, size=batch_size)
 
+        # 检查是否有空位
+        if tf.shape(empty_positions)[0] == 0:
+            return tf.zeros([batch_size, 2], dtype=tf.int32)  # 若无空位，则返回一个默认位置
+
+        # 向量化计算每个游戏的选择位置
+        moves = tf.TensorArray(tf.int32, size=batch_size)
         for idx in tf.range(batch_size):
             # 将 idx 转换为 int32 类型以与 empty_positions[:, 0] 进行比较
             idx_32 = tf.cast(idx, tf.int32)
 
             # 确保 empty_positions[:, 0] 是 int32 类型，避免类型不一致
             board_empty = empty_positions[empty_positions[:, 0] == idx_32][:, 1:]
-            
-            # 检查 board_empty 的形状
-            num_empty = tf.shape(board_empty)[0]
 
-            # 如果没有空位，返回一个默认位置
-            if num_empty == 0:
-                chosen_move = tf.constant([0, 0], dtype=tf.int32)  # 默认返回 (0, 0) 位置
-            else:
-                # 随机选择一个位置
-                random_idx = tf.random.uniform([], maxval=num_empty, dtype=tf.int32)
-                chosen_move = tf.cast(board_empty[random_idx], tf.int32)
+            # 随机选择一个位置
+            random_idx = tf.random.uniform([], maxval=tf.shape(board_empty)[0], dtype=tf.int32)
+            chosen_move = tf.cast(board_empty[random_idx], tf.int32)
 
             # 将选择的移动位置存储
             moves = moves.write(idx, chosen_move)

@@ -36,7 +36,9 @@ class TestGPUMCTS(unittest.TestCase):
         board = np.ones((1, 15, 15), dtype=int)
         moves = self.mcts.sample_moves(tf.constant(board, dtype=tf.int32)).numpy()
 
+        # When no empty space exists, return should be default (0, 0)
         self.assertEqual(moves.shape, (1, 2))
+        self.assertTrue(np.array_equal(moves[0], [0, 0]))
 
     def test_sample_moves_with_empty_space(self):
         board = np.zeros((1, 15, 15), dtype=int)
