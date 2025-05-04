@@ -10,7 +10,7 @@ class DataCollector:
     def __init__(self, base_dir="gomoku_data"):
         self.base_dir = base_dir
         self.ensure_directories()
-    
+
     def ensure_directories(self):
         """确保必要的目录结构存在"""
         dirs = [
@@ -20,18 +20,19 @@ class DataCollector:
             os.path.join(self.base_dir, "statistics"),
             os.path.join(self.base_dir, "models")
         ]
-        
+
         for directory in dirs:
             if not os.path.exists(directory):
                 os.makedirs(directory)
-    
-    def save_game(self, game, metadata=None):
+
+    def save_game(self, game, metadata=None, parameters=None):
         """保存游戏数据，包括棋局信息和元数据
-        
+
         Args:
             game: GomokuGame实例
             metadata: 额外的元数据字典
-            
+            parameters: 游戏生成参数，通常来自命令行参数
+
         Returns:
             tuple: (game_id, file_path) 游戏ID和保存路径
         """
@@ -40,7 +41,7 @@ class DataCollector:
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         game_id = f"game_{timestamp}_{random.randint(1000, 9999)}"
-        
+
         game_data = {
             "game_id": game_id,
             "timestamp": timestamp,
@@ -50,7 +51,11 @@ class DataCollector:
             "move_history": game.move_history,
             "final_board": game.board.tolist()
         }
-        
+
+        # 添加游戏生成参数信息，如果有的话
+        if parameters is not None:
+            game_data["parameters"] = parameters
+
         try:
             file_path = os.path.join(self.base_dir, "games", f"{game_id}.json")
             with open(file_path, 'w') as f:
@@ -65,14 +70,14 @@ class DataCollector:
         except Exception as e:
             print(f"Error saving game: {e}")
             return None, None
-    
+
     def load_game(self, game_id=None, file_path=None):
         """加载保存的游戏数据
-        
+
         Args:
             game_id: 游戏ID
             file_path: 或者直接提供文件路径
-            
+
         Returns:
             dict: 游戏数据
         """
@@ -89,13 +94,13 @@ class DataCollector:
         except Exception as e:
             print(f"Error loading game: {e}")
             return None
-    
+
     def collect_statistics(self, games_data=None):
         """收集游戏统计信息
-        
+
         Args:
             games_data: 游戏数据列表，如果为None则加载所有
-            
+
         Returns:
             dict: 统计信息
         """
@@ -109,7 +114,7 @@ class DataCollector:
                         game_data = self.load_game(file_path=file_path)
                         if game_data:
                             games_data.append(game_data)
-        
+
         # 基本统计
         stats = {
             "total_games": len(games_data),
@@ -119,7 +124,7 @@ class DataCollector:
             "avg_moves": 0,
             "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S")
         }
-        
+
         total_moves = 0
         for game in games_data:
             if game["winner"] == 1:
@@ -128,12 +133,12 @@ class DataCollector:
                 stats["player2_wins"] += 1
             elif game["winner"] == 0:
                 stats["draws"] += 1
-            
+
             total_moves += len(game["move_history"])
-        
+
         if stats["total_games"] > 0:
             stats["avg_moves"] = total_moves / stats["total_games"]
-        
+
         # 保存统计信息
         stats_path = os.path.join(self.base_dir, "statistics", 
                                  f"stats_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
@@ -142,5 +147,5 @@ class DataCollector:
                 json.dump(stats, f, indent=4)
         except Exception as e:
             print(f"Error saving statistics: {e}")
-        
+
         return stats

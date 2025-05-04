@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(m
 logger = logging.getLogger(__name__)
 
 def play_and_save_game(args_tuple):
-    game_idx, board_size, use_mcts, mcts_iterations, base_dir = args_tuple
+    game_idx, board_size, use_mcts, mcts_iterations, base_dir, all_params = args_tuple
 
     # 每个进程单独创建实例
     collector = DataCollector(base_dir=base_dir)
@@ -37,9 +37,11 @@ def play_and_save_game(args_tuple):
 
     metadata = {
         "agents": [agent.__class__.__name__ for agent in agents],
-        "result": "黑胜" if game.winner == 1 else ("白胜" if game.winner == 2 else "平局")
+        "result": "Black Win" if game.winner == 1 else ("White Win" if game.winner == 2 else "Draw")
     }
-    game_id, file_path = collector.save_game(game, metadata)
+
+    # 将参数信息作为单独的参数传递给save_game
+    game_id, file_path = collector.save_game(game, metadata, parameters=all_params)
     logger.info(f"[Game {game_idx}] saved with ID: {game_id}, result: {metadata['result']}")
 
     return game.winner
@@ -50,8 +52,19 @@ def main(args):
 
     pool = Pool(processes=cpu_cores)
 
+    # 创建可序列化的参数字典，用于保存
+    params_dict = {
+        'num_games': args.num_games,
+        'board_size': args.board_size,
+        'use_mcts': args.use_mcts,
+        'mcts_iterations': args.mcts_iterations,
+        'base_dir': args.base_dir,
+        'cpu_cores': args.cpu_cores,
+        'log_interval': args.log_interval
+    }
+
     tasks = [
-        (i+1, args.board_size, args.use_mcts, args.mcts_iterations, args.base_dir)
+        (i+1, args.board_size, args.use_mcts, args.mcts_iterations, args.base_dir, params_dict)
         for i in range(total_games)
     ]
 

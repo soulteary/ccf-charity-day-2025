@@ -64,6 +64,21 @@ def visualize_board(board, board_size, last_move=None, save_path=None, show=Fals
 def create_html_viewer(game_id, game_data, image_paths, html_path):
     rel_image_paths = [os.path.relpath(path, os.path.dirname(html_path)).replace("\\", "/") for path in image_paths]
 
+    # 获取参数信息，如果存在
+    parameters_html = ""
+    if "parameters" in game_data:
+        parameters_html = """
+        <div class="parameters-info">
+            <h3>生成参数:</h3>
+            <ul>
+        """
+        for key, value in game_data["parameters"].items():
+            parameters_html += f"<li><strong>{key}:</strong> {value}</li>"
+        parameters_html += """
+            </ul>
+        </div>
+        """
+
     html_content = f"""
     <!DOCTYPE html>
     <html>
@@ -76,6 +91,9 @@ def create_html_viewer(game_id, game_data, image_paths, html_path):
             .board-container {{ margin: 20px auto; }}
             button {{ padding: 5px 10px; margin: 0 5px; }}
             .move-info {{ margin: 10px; }}
+            .game-info {{ margin-bottom: 20px; text-align: left; max-width: 600px; margin-left: auto; margin-right: auto; }}
+            .parameters-info {{ margin-top: 20px; text-align: left; }}
+            .parameters-info ul {{ text-align: left; list-style-type: none; padding-left: 10px; }}
         </style>
     </head>
     <body>
@@ -85,6 +103,7 @@ def create_html_viewer(game_id, game_data, image_paths, html_path):
             <p><strong>棋盘大小:</strong> {game_data["board_size"]}×{game_data["board_size"]}</p>
             <p><strong>结果:</strong> {"黑胜" if game_data["winner"] == 1 else "白胜" if game_data["winner"] == 2 else "平局"}</p>
             <p><strong>总步数:</strong> {len(game_data["move_history"])}</p>
+            {parameters_html}
         </div>
         <div class="control-panel">
             <button onclick="firstMove()">第一步</button>
