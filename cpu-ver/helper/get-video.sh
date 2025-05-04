@@ -1,0 +1,1 @@
+python ffmpeg_images_to_video.py --input_dir "gomoku_data/visualizations" --output_dir "gomoku_videos" --fps 30  --format mp4 --create_html
