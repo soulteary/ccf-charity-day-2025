@@ -14,17 +14,15 @@ class GPUMCTS:
         initial_mask = tf.where(initial_boards == 0, 0.0, -np.inf)
         move_scores = tf.identity(initial_mask)
 
-        # Ensure initial_boards and initial_players are of type int32
-        initial_boards = tf.cast(initial_boards, tf.int32)  # Convert to int32
-        initial_players = tf.cast(initial_players, tf.int32)  # Convert to int32
+        initial_boards = tf.cast(initial_boards, tf.int32)
+        initial_players = tf.cast(initial_players, tf.int32)
 
         for _ in tf.range(self.iterations):
             moves = self.sample_moves(initial_boards)
             sim_boards = tf.identity(initial_boards)
             players = tf.identity(initial_players)
 
-            # Ensure sim_boards and players are of the same type
-            sim_boards = tf.cast(sim_boards, tf.int32)  # Ensure sim_boards is int32
+            sim_boards = tf.cast(sim_boards, tf.int32)
 
             indices = tf.stack([
                 tf.range(batch_size, dtype=tf.int32),
@@ -32,7 +30,6 @@ class GPUMCTS:
                 moves[:, 1]
             ], axis=-1)
 
-            # Now both sim_boards and players are int32, we can safely perform the scatter update
             sim_boards = tf.tensor_scatter_nd_update(sim_boards, indices, players)
             immediate_winners = check_winner_tf(sim_boards)
             ongoing_mask = immediate_winners == 0
@@ -45,7 +42,6 @@ class GPUMCTS:
             ongoing_indices = tf.where(ongoing_mask)
             final_winners = tf.tensor_scatter_nd_update(final_winners, ongoing_indices, winners_from_simulation)
 
-            # 强制类型统一为 int32，确保类型一致
             final_winners = tf.cast(final_winners, tf.int32)
 
             rewards = tf.where(final_winners == initial_players, 1.0,
@@ -62,27 +58,13 @@ class GPUMCTS:
     @tf.function
     def sample_moves(self, boards):
         batch_size = tf.shape(boards)[0]
-        empty_positions = tf.where(tf.equal(boards, 0))  # 获取所有空位的位置
-        empty_positions = tf.cast(empty_positions, tf.int32)  # 确保 empty_positions 为 int32 类型
+        empty_positions = tf.where(tf.equal(boards, 0))
+        empty_positions = tf.cast(empty_positions, tf.int32)
 
-        # 检查是否有空位
         if tf.shape(empty_positions)[0] == 0:
-            return tf.zeros([batch_size, 2], dtype=tf.int32)  # 若无空位，则返回一个默认位置
+            return tf.zeros([batch_size, 2], dtype=tf.int32)
 
-        # 向量化计算每个游戏的选择位置
-        moves = tf.TensorArray(tf.int32, size=batch_size)
-        for idx in tf.range(batch_size):
-            # 将 idx 转换为 int32 类型以与 empty_positions[:, 0] 进行比较
-            idx_32 = tf.cast(idx, tf.int32)
+        random_indices = tf.random.uniform([batch_size], minval=0, maxval=tf.shape(empty_positions)[0], dtype=tf.int32)
+        selected_positions = tf.gather(empty_positions[:, 1:], random_indices)
 
-            # 确保 empty_positions[:, 0] 是 int32 类型，避免类型不一致
-            board_empty = empty_positions[empty_positions[:, 0] == idx_32][:, 1:]
-
-            # 随机选择一个位置
-            random_idx = tf.random.uniform([], maxval=tf.shape(board_empty)[0], dtype=tf.int32)
-            chosen_move = tf.cast(board_empty[random_idx], tf.int32)
-
-            # 将选择的移动位置存储
-            moves = moves.write(idx, chosen_move)
-
-        return moves.stack()
+        return selected_positions
