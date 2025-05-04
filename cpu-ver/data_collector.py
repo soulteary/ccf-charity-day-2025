@@ -22,8 +22,7 @@ class DataCollector:
         ]
 
         for directory in dirs:
-            if not os.path.exists(directory):
-                os.makedirs(directory)
+            os.makedirs(directory, exist_ok=True)
 
     def save_game(self, game, metadata=None, parameters=None):
         """保存游戏数据，包括棋局信息和元数据
