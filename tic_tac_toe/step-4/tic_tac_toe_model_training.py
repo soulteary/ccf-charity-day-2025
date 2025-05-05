@@ -322,14 +322,23 @@ def evaluate_model(model, X_test, y_test, output_dir, model_name):
     print("\n📊 在测试集上评估模型...")
     test_results = model.evaluate(X_test, y_test, verbose=1)
 
+    # 确保指标名称正确匹配
+    metric_names = [name for name in model.metrics_names]
+
     # 获取预测结果
     y_pred = model.predict(X_test)
     y_pred_classes = np.argmax(y_pred, axis=1)
     y_true_classes = np.argmax(y_test, axis=1)
 
+    # 创建结果字典，确保使用正确的指标名称
     results = {
-        'metrics': {name: float(value) for name, value in zip(model.metrics_names, test_results)}
+        'metrics': {}
     }
+
+    # 使用循环安全地创建指标字典
+    for i, name in enumerate(metric_names):
+        if i < len(test_results):  # 确保索引在范围内
+            results['metrics'][name] = float(test_results[i])
 
     # 如果 sklearn 可用，生成混淆矩阵和分类报告
     if SKLEARN_AVAILABLE:
@@ -376,20 +385,29 @@ def evaluate_model(model, X_test, y_test, output_dir, model_name):
             # 精确率：正确预测为类别 i 的样本 / 预测为类别 i 的样本总数
             if np.sum(cm[:, i]) > 0:
                 precision[i] = cm[i, i] / np.sum(cm[:, i])
-
+            
             # 召回率：正确预测为类别 i 的样本 / 类别 i 的样本总数
             if np.sum(cm[i, :]) > 0:
                 recall[i] = cm[i, i] / np.sum(cm[i, :])
-
+        
         # 添加到结果
         results['manual_metrics'] = {
             'precision': precision.tolist(),
             'recall': recall.tolist()
         }
 
+    # 输出混淆矩阵到控制台
+    print("\n混淆矩阵:")
+    print("     预测:  胜    负    平")
+    for i, row in enumerate(['胜', '负', '平']):
+        print(f"真实: {row}  {cm[i][0]:4d} {cm[i][1]:4d} {cm[i][2]:4d}")
+
     # 保存结果
-    with open(os.path.join(eval_dir, 'evaluation_results.json'), 'w') as f:
-        json.dump(results, f, indent=4)
+    try:
+        with open(os.path.join(eval_dir, 'evaluation_results.json'), 'w') as f:
+            json.dump(results, f, indent=4)
+    except Exception as e:
+        print(f"保存评估结果时出错: {str(e)}")
 
     return results
 
@@ -570,8 +588,40 @@ def main():
 
         # 打印最终结果
         print("\n📈 最终结果:")
-        print(f"测试准确率: {results['metrics']['accuracy']:.4f}")
-        print(f"测试损失: {results['metrics']['loss']:.4f}")
+        try:
+            if 'accuracy' in results['metrics']:
+                print(f"测试准确率: {results['metrics']['accuracy']:.4f}")
+            else:
+                # 尝试找到可能具有相似功能的指标
+                for metric_name in results['metrics']:
+                    if 'acc' in metric_name.lower():
+                        print(f"测试准确率({metric_name}): {results['metrics'][metric_name]:.4f}")
+                        break
+                else:
+                    # 如果找不到准确率相关指标，打印所有可用指标
+                    print("未找到准确率指标，所有可用指标:")
+
+            if 'loss' in results['metrics']:
+                print(f"测试损失: {results['metrics']['loss']:.4f}")
+            else:
+                for metric_name in results['metrics']:
+                    if 'loss' in metric_name.lower():
+                        print(f"测试损失({metric_name}): {results['metrics'][metric_name]:.4f}")
+                        break
+
+            # 打印所有指标
+            print("\n所有测试指标:")
+            for metric_name, value in results['metrics'].items():
+                print(f"{metric_name}: {value:.4f}")
+
+        except KeyError as e:
+            print(f"获取结果指标时出错: {e}")
+            print("可用的指标键:", list(results.keys()))
+            if 'metrics' in results:
+                print("可用的度量指标:", list(results['metrics'].keys()))
+        except Exception as e:
+            print(f"处理结果时出错: {str(e)}")
+
 
         # 保存模型元数据
         metadata = {
