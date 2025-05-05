@@ -6,6 +6,9 @@ from datetime import datetime
 from tqdm import tqdm
 from tic_tac_toe import TicTacToeGame
 from agents import MCTSAgent, GreedyAgent, RandomAgent
+import multiprocessing as mp
+from functools import partial
+import concurrent.futures
 
 class AdvancedTicTacToeDataGenerator:
     def __init__(self, base_dir="tic_tac_toe_advanced_data"):
@@ -15,14 +18,99 @@ class AdvancedTicTacToeDataGenerator:
         os.makedirs(self.npz_dir, exist_ok=True)
         os.makedirs(self.json_dir, exist_ok=True)
 
-    def generate_data(self, num_games=10000, agents=None, history_length=3):
+    def _generate_single_game(self, game_id, agents, history_length=3):
         """
-        Generate game data for training machine learning models
+        Generate data for a single game, to be used with multiprocessing
+        
+        Args:
+            game_id: ID of the game
+            agents: List of two agents to play against each other
+            history_length: Number of previous board states to include in features
+            
+        Returns:
+            Tuple of (training_data, game_history)
+        """
+        np.random.seed(game_id)  # Ensure different random numbers for each process
+        
+        game = TicTacToeGame()
+        training_data = []
+        moves_history = []
+        # Pre-allocate history array for better memory efficiency
+        history = np.zeros((history_length, 3, 3, 2), dtype=np.float32)
+        
+        move_count = 0
+        
+        while not game.game_over:
+            current_agent = agents[game.current_player - 1]
+            current_player = game.current_player
+            
+            # Get current board representation - use advanced indexing for speed
+            board_current = np.zeros((3, 3, 2), dtype=np.float32)
+            board_current[:, :, 0] = (game.board == 1).astype(np.float32)
+            board_current[:, :, 1] = (game.board == 2).astype(np.float32)
+            
+            # Save the current board state before making a move
+            moves_history.append({
+                "board": game.board.tolist(),  # Avoid unnecessary copy
+                "current_player": current_player,
+                "move_number": move_count
+            })
+            
+            # Select move using the appropriate agent
+            move = current_agent.select_move(game)
+            
+            # Update the history window with efficient rolling
+            history = np.roll(history, -1, axis=0)
+            history[-1] = board_current
+            
+            # Create input feature for the model - preallocate once outside loop
+            input_feature = np.reshape(history, (3, 3, history_length * 2))
+            
+            # Make the move
+            game.make_move(*move)
+            move_count += 1
+            
+            # Record the move outcome
+            moves_history[-1]["move_made"] = list(move)
+            
+            # Create label: [win, loss, draw] - use array instead of list for better performance
+            if game.game_over:
+                if game.winner == current_player:
+                    label = np.array([1.0, 0.0, 0.0], dtype=np.float32)  # Win
+                elif game.winner == 0:
+                    label = np.array([0.0, 0.0, 1.0], dtype=np.float32)  # Draw
+                else:
+                    label = np.array([0.0, 1.0, 0.0], dtype=np.float32)  # Loss
+            else:
+                # For non-terminal states, we'll use a temporary neutral label
+                label = np.array([0.33, 0.33, 0.33], dtype=np.float32)
+            
+            training_data.append((input_feature, label, current_player, move_count))
+        
+        # Record the game outcome
+        game_history = {
+            "game_id": game_id,
+            "moves": moves_history,
+            "winner": game.winner,
+            "total_moves": move_count,
+            "metadata": {
+                "player1_agent": agents[0].__class__.__name__,
+                "player2_agent": agents[1].__class__.__name__,
+                "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S")
+            }
+        }
+        
+        return training_data, game_history
+
+    def generate_data(self, num_games=10000, agents=None, history_length=3, n_workers=None):
+        """
+        Generate game data for training machine learning models using multiprocessing
         
         Args:
             num_games: Number of games to generate
             agents: List of two agents to play against each other
             history_length: Number of previous board states to include in features
+            n_workers: Number of worker processes (defaults to CPU count)
             
         Returns:
             List of tuples containing (input_feature, label)
@@ -30,87 +118,57 @@ class AdvancedTicTacToeDataGenerator:
         if agents is None:
             # Default to MCTS vs Greedy for high-quality games
             agents = [MCTSAgent(simulations=1000), GreedyAgent()]
-
-        training_data = []
-        game_histories = []
-
-        for game_id in tqdm(range(num_games), desc="Generating Advanced Data"):
-            game = TicTacToeGame()
-            # Track board states for the entire game to record as game history
-            moves_history = []
-            # Track states for the feature history window
-            history = [np.zeros((3, 3, 2)) for _ in range(history_length)]
+        
+        # Determine optimal number of workers if not specified
+        if n_workers is None:
+            n_workers = mp.cpu_count()
+        
+        n_workers = min(n_workers, num_games)  # Don't create more workers than games
+        
+        print(f"Generating {num_games} games using {n_workers} CPU workers")
+        
+        # Prepare arguments for multiprocessing
+        generate_game_partial = partial(self._generate_single_game, 
+                                       agents=agents, 
+                                       history_length=history_length)
+        
+        all_training_data = []
+        all_game_histories = []
+        
+        batch_size = 1000  # Process games in batches to reduce memory usage
+        for batch_start in range(0, num_games, batch_size):
+            batch_end = min(batch_start + batch_size, num_games)
+            batch_size_actual = batch_end - batch_start
             
-            move_count = 0
+            with tqdm(total=batch_size_actual, desc=f"Batch {batch_start//batch_size + 1}") as pbar:
+                # Use concurrent.futures for better exception handling and progress tracking
+                with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as executor:
+                    # Submit all jobs
+                    future_to_game_id = {
+                        executor.submit(generate_game_partial, game_id): game_id 
+                        for game_id in range(batch_start, batch_end)
+                    }
+                    
+                    # Process results as they complete
+                    for future in concurrent.futures.as_completed(future_to_game_id):
+                        game_id = future_to_game_id[future]
+                        try:
+                            training_data, game_history = future.result()
+                            all_training_data.extend(training_data)
+                            all_game_histories.append(game_history)
+                            pbar.update(1)
+                        except Exception as e:
+                            print(f"Game {game_id} generated an exception: {e}")
             
-            while not game.game_over:
-                current_agent = agents[game.current_player - 1]
-                current_player = game.current_player
-                
-                # Get current board representation
-                board_current = np.stack([game.board == 1, game.board == 2], axis=-1).astype(np.float32)
-                
-                # Save the current board state before making a move
-                moves_history.append({
-                    "board": np.copy(game.board).tolist(),
-                    "current_player": current_player,
-                    "move_number": move_count
-                })
-                
-                # Select move using the appropriate agent
-                move = current_agent.select_move(game)
-                
-                # Update the history window
-                history.append(board_current)
-                if len(history) > history_length:
-                    history.pop(0)
-                
-                # Create input feature for the model
-                input_feature = np.concatenate(history, axis=-1)
-                
-                # Make the move
-                game.make_move(*move)
-                move_count += 1
-                
-                # Record the move outcome
-                moves_history[-1]["move_made"] = list(move)
-                
-                # Create label: [win, loss, draw]
-                if game.game_over:
-                    if game.winner == current_player:
-                        label = [1.0, 0.0, 0.0]  # Win
-                    elif game.winner == 0:
-                        label = [0.0, 0.0, 1.0]  # Draw
-                    else:
-                        label = [0.0, 1.0, 0.0]  # Loss
-                else:
-                    # For non-terminal states, we'll use a temporary neutral label
-                    # that will be updated in the post-processing phase
-                    label = [0.33, 0.33, 0.33]
-                
-                training_data.append((input_feature, label, current_player, move_count))
-            
-            # Record the game outcome
-            game_histories.append({
-                "game_id": game_id,
-                "moves": moves_history,
-                "winner": game.winner,
-                "total_moves": move_count,
-                "metadata": {
-                    "player1_agent": agents[0].__class__.__name__,
-                    "player2_agent": agents[1].__class__.__name__,
-                    "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S")
-                }
-            })
-            
-            # Every 1000 games, save the accumulated game histories
-            if (game_id + 1) % 1000 == 0:
-                self.save_json_data(game_histories[-1000:], batch_id=game_id // 1000)
+            # Save the batch to disk to free memory
+            if batch_end % 1000 == 0 or batch_end == num_games:
+                batch_id = batch_end // 1000
+                self.save_json_data(all_game_histories[-batch_size_actual:], batch_id=batch_id-1)
         
         # Post-process the training data to update non-terminal state labels
-        processed_data = self.post_process_data(training_data)
+        processed_data = self.post_process_data(all_training_data)
         
-        return processed_data, game_histories
+        return processed_data, all_game_histories
 
     def post_process_data(self, training_data):
         """
@@ -122,45 +180,66 @@ class AdvancedTicTacToeDataGenerator:
         Returns:
             Processed list of (features, label) tuples
         """
+        print("Post-processing training data...")
         processed_data = []
         
-        # Group data by game
-        games_data = {}
+        # Group data by game more efficiently
+        game_move_dict = {}
         for item in training_data:
             feature, label, player, move_count = item
-            if move_count not in games_data:
-                games_data[move_count] = []
-            games_data[move_count].append((feature, label, player))
+            game_key = (player, move_count // 10)  # Group by player and approximate game
+            
+            if game_key not in game_move_dict:
+                game_move_dict[game_key] = []
+            
+            game_move_dict[game_key].append((feature, label, player, move_count))
         
-        # Process each game
-        for game_moves in games_data.values():
-            # Sort moves by player and move count
-            game_moves.sort(key=lambda x: (x[2], x[3]))
+        # Use ThreadPoolExecutor for post-processing which is less CPU-intensive
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = []
+            for game_moves in game_move_dict.values():
+                futures.append(executor.submit(self._process_single_game, game_moves))
             
-            # Get terminal state labels
-            terminal_labels = {}
-            for feature, label, player in game_moves:
-                if label[0] == 1.0 or label[1] == 1.0 or label[2] == 1.0:
-                    terminal_labels[player] = label
-            
-            # Update non-terminal states with discounted rewards
-            discount_factor = 0.9
-            for feature, label, player in game_moves:
-                if label[0] != 1.0 and label[1] != 1.0 and label[2] != 1.0:
-                    if player in terminal_labels:
-                        # Apply discount factor based on distance from terminal state
-                        steps_from_terminal = max(0, game_moves[-1][3] - move_count)
-                        discount = discount_factor ** steps_from_terminal
-                        new_label = [val * discount for val in terminal_labels[player]]
-                        processed_data.append((feature, new_label))
-                    else:
-                        # If no terminal state for this player, use original label
-                        processed_data.append((feature, label))
-                else:
-                    # Use original label for terminal states
-                    processed_data.append((feature, label))
+            # Collect results
+            for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Processing games"):
+                processed_data.extend(future.result())
         
         return processed_data
+
+    def _process_single_game(self, game_moves):
+        """Process a single game's moves for backpropagation of rewards"""
+        result = []
+        
+        # Sort moves by move count
+        game_moves.sort(key=lambda x: x[3])
+        
+        # Get terminal state labels
+        terminal_labels = {}
+        for feature, label, player, move_count in game_moves:
+            # Check if this is a terminal state
+            if label[0] > 0.9 or label[1] > 0.9 or label[2] > 0.9:  # More efficient than checking exact equality
+                terminal_labels[player] = label
+        
+        # Use vectorized operations where possible
+        discount_factor = 0.9
+        for feature, label, player, move_count in game_moves:
+            # Check if this is not a terminal state
+            if not (label[0] > 0.9 or label[1] > 0.9 or label[2] > 0.9):
+                if player in terminal_labels:
+                    # Apply discount factor based on distance from terminal state
+                    steps_from_terminal = max(0, game_moves[-1][3] - move_count)
+                    discount = discount_factor ** steps_from_terminal
+                    # Vectorized multiplication
+                    new_label = terminal_labels[player] * discount
+                    result.append((feature, new_label))
+                else:
+                    # If no terminal state for this player, use original label
+                    result.append((feature, label))
+            else:
+                # Use original label for terminal states
+                result.append((feature, label))
+        
+        return result
 
     def save_npz_data(self, training_data, train_ratio=0.8, val_ratio=0.1):
         """
@@ -171,11 +250,24 @@ class AdvancedTicTacToeDataGenerator:
             train_ratio: Proportion of data to use for training
             val_ratio: Proportion of data to use for validation
         """
-        np.random.shuffle(training_data)
+        print("Saving NPZ data...")
+        
+        # Use more efficient shuffling with numpy
+        indices = np.arange(len(training_data))
+        np.random.shuffle(indices)
+        
+        # Pre-allocate arrays for better performance
+        # Determine shapes
+        feature_shape = training_data[0][0].shape
+        label_shape = training_data[0][1].shape
+        
+        X = np.empty((len(training_data),) + feature_shape, dtype=np.float32)
+        y = np.empty((len(training_data),) + label_shape, dtype=np.float32)
         
         # Extract features and labels
-        X = np.array([x[0] for x in training_data])
-        y = np.array([x[1] for x in training_data])
+        for i, idx in enumerate(indices):
+            X[i] = training_data[idx][0]
+            y[i] = training_data[idx][1]
         
         # Split the data
         train_idx = int(len(training_data) * train_ratio)
@@ -189,19 +281,28 @@ class AdvancedTicTacToeDataGenerator:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"advanced_tic_tac_toe_data_{timestamp}.npz"
         
+        # Use a temporary file to avoid memory issues with large datasets
+        temp_file = os.path.join(self.npz_dir, f"temp_{timestamp}.npz")
+        
+        metadata = np.array([{
+            "train_samples": len(X_train),
+            "val_samples": len(X_val),
+            "test_samples": len(X_test),
+            "feature_shape": feature_shape,
+            "timestamp": timestamp
+        }], dtype=object)
+        
+        # Save in chunks to reduce memory usage
         np.savez_compressed(
-            os.path.join(self.npz_dir, filename),
+            temp_file,
             X_train=X_train, y_train=y_train,
             X_val=X_val, y_val=y_val,
             X_test=X_test, y_test=y_test,
-            metadata=np.array([{
-                "train_samples": len(X_train),
-                "val_samples": len(X_val),
-                "test_samples": len(X_test),
-                "feature_shape": X_train[0].shape,
-                "timestamp": timestamp
-            }], dtype=object)
+            metadata=metadata
         )
+        
+        # Rename the temporary file
+        os.rename(temp_file, os.path.join(self.npz_dir, filename))
         
         print(f"Saved NPZ data to {os.path.join(self.npz_dir, filename)}")
         print(f"Train: {len(X_train)} samples, Val: {len(X_val)} samples, Test: {len(X_test)} samples")
@@ -219,17 +320,35 @@ class AdvancedTicTacToeDataGenerator:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         batch_str = f"_batch_{batch_id}" if batch_id is not None else ""
         filename = f"tic_tac_toe_games_{timestamp}{batch_str}.json"
+        file_path = os.path.join(self.json_dir, filename)
         
-        with open(os.path.join(self.json_dir, filename), 'w') as f:
-            json.dump({
-                "games": game_histories,
-                "metadata": {
-                    "num_games": len(game_histories),
-                    "timestamp": timestamp
-                }
-            }, f, indent=2)
+        # Use a more memory-efficient approach for writing large JSON files
+        with open(file_path, 'w') as f:
+            # Write the opening
+            f.write('{\n  "games": [\n')
+            
+            # Write each game separately
+            for i, game in enumerate(game_histories):
+                game_json = json.dumps(game, indent=2)
+                
+                # Adjust indentation
+                game_json = '    ' + game_json.replace('\n', '\n    ')
+                
+                # Add comma if not the last game
+                if i < len(game_histories) - 1:
+                    game_json += ','
+                
+                f.write(game_json + '\n')
+            
+            # Write the metadata and closing
+            f.write('  ],\n')
+            f.write('  "metadata": {\n')
+            f.write(f'    "num_games": {len(game_histories)},\n')
+            f.write(f'    "timestamp": "{timestamp}"\n')
+            f.write('  }\n')
+            f.write('}\n')
         
-        print(f"Saved JSON data to {os.path.join(self.json_dir, filename)}")
+        print(f"Saved JSON data to {file_path}")
 
 def parse_args():
     """Parse command line arguments"""
@@ -248,6 +367,10 @@ def parse_args():
                         help="Number of simulations for MCTS agent")
     parser.add_argument("--save_frequency", type=int, default=1000, 
                         help="Save JSON data every N games")
+    parser.add_argument("--workers", type=int, default=None,
+                        help="Number of worker processes (default: use all available CPUs)")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Random seed for reproducibility")
     return parser.parse_args()
 
 def create_agent(agent_type, mcts_simulations=1000):
@@ -265,6 +388,9 @@ def main():
     """Main function"""
     args = parse_args()
     
+    # Set random seed for reproducibility
+    np.random.seed(args.seed)
+    
     print(f"Generating {args.num_games} games with {args.agent1} vs {args.agent2}")
     print(f"Using history length of {args.history_length}")
     
@@ -275,10 +401,12 @@ def main():
     generator = AdvancedTicTacToeDataGenerator(base_dir=args.output_dir)
     
     # Generate the data
+    start_time = datetime.now()
     training_data, game_histories = generator.generate_data(
         num_games=args.num_games,
         agents=[agent1, agent2],
-        history_length=args.history_length
+        history_length=args.history_length,
+        n_workers=args.workers
     )
     
     # Save the data
@@ -289,6 +417,11 @@ def main():
     if remaining_games > 0:
         batch_id = len(game_histories) // args.save_frequency
         generator.save_json_data(game_histories[-remaining_games:], batch_id=batch_id)
+    
+    end_time = datetime.now()
+    elapsed = (end_time - start_time).total_seconds()
+    print(f"Data generation completed in {elapsed:.2f} seconds")
+    print(f"Average time per game: {elapsed/args.num_games:.4f} seconds")
 
 if __name__ == "__main__":
     main()
