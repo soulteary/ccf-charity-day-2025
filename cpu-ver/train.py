@@ -1,11 +1,7 @@
 import os
 import argparse
-import numpy as np
-from gomoku_game import GomokuGame
 from data_collector import DataCollector
-from generate_visualizations import visualize_board
 from tensorflow.keras.optimizers import Adam
-from datetime import datetime
 from trainer import GomokuModelTrainer
 import json
 
@@ -70,11 +66,6 @@ def main(args):
 
     # 保存训练过程
     save_training_history(history, os.path.join(base_dir, "training_histories"), args.model_type)
-
-    # 转换并保存为TensorFlow.js模型
-    tfjs_output_dir = trainer.convert_to_tfjs(model_path=model, output_dir=os.path.join(base_dir, "tfjs_model"))
-    print(f"TensorFlow.js 模型已保存至: {tfjs_output_dir}")
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Gomoku AI Training and Conversion")
