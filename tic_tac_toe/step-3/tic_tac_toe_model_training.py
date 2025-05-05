@@ -1,7 +1,8 @@
 import numpy as np
-import argparse, os
+import argparse
+import os
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout, BatchNormalization, Conv2D, Flatten, Input
+from tensorflow.keras.layers import Conv2D, Flatten, Dense, Dropout, BatchNormalization, Input
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 import matplotlib.pyplot as plt
@@ -15,22 +16,23 @@ def find_latest_npz(data_dir):
 
 def load_data(npz_file):
     data = np.load(npz_file)
-    return (data["X_train"].reshape(-1, 3, 3, 2), data["y_train"],
-            data["X_test"].reshape(-1, 3, 3, 2), data["y_test"])
+    X_train = data["X_train"].reshape(-1, 3, 3, 2)
+    X_test = data["X_test"].reshape(-1, 3, 3, 2)
+    return X_train, data["y_train"], X_test, data["y_test"]
 
 def build_cnn_model(input_shape=(3,3,2)):
     model = Sequential([
         Input(shape=input_shape),
-        Conv2D(64, kernel_size=2, activation='relu', padding='same'),
+        Conv2D(64, kernel_size=(2,2), activation='relu', padding='same'),
         BatchNormalization(),
-        Conv2D(128, kernel_size=2, activation='relu', padding='same'),
+        Conv2D(128, kernel_size=(2,2), activation='relu', padding='same'),
         BatchNormalization(),
         Flatten(),
         Dense(128, activation='relu'),
         Dropout(0.3),
         Dense(1, activation='sigmoid')
     ])
-    model.compile(optimizer=Adam(3e-4), loss='binary_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer=Adam(0.0003), loss='binary_crossentropy', metrics=['accuracy'])
     return model
 
 def plot_training(history, output_dir):
@@ -46,7 +48,7 @@ def plot_training(history, output_dir):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default="tic_tac_toe_training_data/npz_data")
+    parser.add_argument("--data_dir", type=str, default="tic_tac_toe_data/npz_data")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--output_dir", type=str, default="tic_tac_toe_cnn_output")
