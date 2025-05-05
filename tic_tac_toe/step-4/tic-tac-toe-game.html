@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>井字棋游戏 - AI模型验证</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/4.2.0/tf.min.js"></script>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        .description {
+            max-width: 600px;
+            text-align: center;
+            margin-bottom: 20px;
+            color: #7f8c8d;
+        }
+        .game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .board-container {
+            position: relative;
+        }
+        canvas {
+            background-color: white;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+        }
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: 300px;
+        }
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+        button.secondary {
+            background-color: #95a5a6;
+        }
+        button.secondary:hover {
+            background-color: #7f8c8d;
+        }
+        button.danger {
+            background-color: #e74c3c;
+        }
+        button.danger:hover {
+            background-color: #c0392b;
+        }
+        button.success {
+            background-color: #27ae60;
+        }
+        button.success:hover {
+            background-color: #219955;
+        }
+        .game-status {
+            font-size: 18px;
+            font-weight: bold;
+            margin: 15px 0;
+            text-align: center;
+            height: 24px;
+        }
+        .game-stats {
+            display: flex;
+            justify-content: space-around;
+            width: 300px;
+            margin-top: 10px;
+            background-color: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .stat {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+        .stat-value {
+            font-size: 22px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .model-selection {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: 300px;
+            margin-bottom: 20px;
+        }
+        .model-input {
+            display: flex;
+            gap: 10px;
+        }
+        .model-input input {
+            flex-grow: 1;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .loading-indicator {
+            display: none;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-radius: 50%;
+            border-top: 4px solid #3498db;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .toggles {
+            display: flex;
+            gap: 20px;
+            margin: 10px 0;
+        }
+        .toggle {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .prediction-info {
+            width: 300px;
+            background-color: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-top: 15px;
+            display: none;
+        }
+        .prediction-label {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .prediction-bar {
+            height: 25px;
+            margin: 5px 0;
+            background-color: #f1f1f1;
+            position: relative;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .prediction-fill {
+            height: 100%;
+            position: absolute;
+            left: 0;
+            top: 0;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .win-fill {
+            background-color: #2ecc71;
+        }
+        .loss-fill {
+            background-color: #e74c3c;
+        }
+        .draw-fill {
+            background-color: #f39c12;
+        }
+    </style>
+</head>
+<body>
+    <h1>井字棋 AI 模型验证</h1>
+    <p class="description">
+        这个井字棋游戏使用TensorFlow.js加载经过训练的模型。您可以与模型对弈，测试其性能，
+        并观察其在不同游戏局面下的预测能力。
+    </p>
+
+    <div class="model-selection">
+        <div class="model-input">
+            <input type="file" id="model-file" accept=".h5,.keras,.json" />
+            <button id="load-model-btn" class="success">加载模型</button>
+        </div>
+        <div class="loading-indicator" id="loading-indicator">
+            <div class="spinner"></div>
+            <span>正在加载模型...</span>
+        </div>
+    </div>
+
+    <div class="toggles">
+        <div class="toggle">
+            <input type="checkbox" id="show-predictions" checked>
+            <label for="show-predictions">显示预测</label>
+        </div>
+        <div class="toggle">
+            <input type="checkbox" id="ai-first" checked>
+            <label for="ai-first">AI先手</label>
+        </div>
+    </div>
+
+    <div class="game-container">
+        <div class="board-container">
+            <canvas id="game-board" width="300" height="300"></canvas>
+        </div>
+        
+        <div class="game-status" id="game-status">加载模型后开始游戏</div>
+        
+        <div class="btn-group">
+            <button id="new-game-btn" disabled>新游戏</button>
+            <button id="ai-move-btn" disabled>AI走棋</button>
+            <button id="reset-stats-btn" class="secondary">重置统计</button>
+        </div>
+
+        <div class="game-stats">
+            <div class="stat">
+                <div class="stat-label">玩家胜</div>
+                <div class="stat-value" id="player-wins">0</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">AI胜</div>
+                <div class="stat-value" id="ai-wins">0</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">平局</div>
+                <div class="stat-value" id="draws">0</div>
+            </div>
+        </div>
+
+        <div class="prediction-info" id="prediction-info">
+            <div class="prediction-label">AI预测:</div>
+            <div>
+                <div>获胜概率:</div>
+                <div class="prediction-bar">
+                    <div class="prediction-fill win-fill" id="win-prob" style="width: 0%">0%</div>
+                </div>
+            </div>
+            <div>
+                <div>失败概率:</div>
+                <div class="prediction-bar">
+                    <div class="prediction-fill loss-fill" id="loss-prob" style="width: 0%">0%</div>
+                </div>
+            </div>
+            <div>
+                <div>平局概率:</div>
+                <div class="prediction-bar">
+                    <div class="prediction-fill draw-fill" id="draw-prob" style="width: 0%">0%</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 游戏常量
+        const EMPTY = 0;
+        const PLAYER_X = 1;  // 玩家使用X
+        const PLAYER_O = 2;  // AI使用O
+        const BOARD_SIZE = 3;
+        const CELL_SIZE = 100;
+        
+        // 游戏状态
+        let board = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(EMPTY));
+        let currentPlayer = PLAYER_X;
+        let gameOver = false;
+        let winner = null;
+        let aiModel = null;
+        let modelLoaded = false;
+        let gameHistory = [];
+        
+        // 统计数据
+        let stats = {
+            playerWins: 0,
+            aiWins: 0,
+            draws: 0
+        };
+        
+        // DOM元素
+        const canvas = document.getElementById('game-board');
+        const ctx = canvas.getContext('2d');
+        const gameStatus = document.getElementById('game-status');
+        const newGameBtn = document.getElementById('new-game-btn');
+        const aiMoveBtn = document.getElementById('ai-move-btn');
+        const resetStatsBtn = document.getElementById('reset-stats-btn');
+        const playerWinsEl = document.getElementById('player-wins');
+        const aiWinsEl = document.getElementById('ai-wins');
+        const drawsEl = document.getElementById('draws');
+        const loadModelBtn = document.getElementById('load-model-btn');
+        const modelFileInput = document.getElementById('model-file');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const showPredictionsCheckbox = document.getElementById('show-predictions');
+        const aiFirstCheckbox = document.getElementById('ai-first');
+        const predictionInfo = document.getElementById('prediction-info');
+        const winProbEl = document.getElementById('win-prob');
+        const lossProbEl = document.getElementById('loss-prob');
+        const drawProbEl = document.getElementById('draw-prob');
+        
+        // 初始化游戏
+        function initGame() {
+            board = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(EMPTY));
+            gameHistory = [];
+            currentPlayer = aiFirstCheckbox.checked ? PLAYER_O : PLAYER_X;
+            gameOver = false;
+            winner = null;
+            
+            updateGameStatus();
+            drawBoard();
+            
+            if (currentPlayer === PLAYER_O && modelLoaded) {
+                setTimeout(makeAIMove, 400);
+            }
+        }
+        
+        // 绘制游戏板
+        function drawBoard() {
+            // 清除画布
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制网格线
+            ctx.strokeStyle = '#95a5a6';
+            ctx.lineWidth = 2;
+            
+            // 垂直线
+            for (let i = 1; i < BOARD_SIZE; i++) {
+                ctx.beginPath();
+                ctx.moveTo(i * CELL_SIZE, 0);
+                ctx.lineTo(i * CELL_SIZE, canvas.height);
+                ctx.stroke();
+            }
+            
+            // 水平线
+            for (let i = 1; i < BOARD_SIZE; i++) {
+                ctx.beginPath();
+                ctx.moveTo(0, i * CELL_SIZE);
+                ctx.lineTo(canvas.width, i * CELL_SIZE);
+                ctx.stroke();
+            }
+            
+            // 绘制棋子
+            for (let row = 0; row < BOARD_SIZE; row++) {
+                for (let col = 0; col < BOARD_SIZE; col++) {
+                    const x = col * CELL_SIZE + CELL_SIZE / 2;
+                    const y = row * CELL_SIZE + CELL_SIZE / 2;
+                    
+                    if (board[row][col] === PLAYER_X) {
+                        drawX(x, y);
+                    } else if (board[row][col] === PLAYER_O) {
+                        drawO(x, y);
+                    }
+                }
+            }
+        }
+        
+        // 绘制X
+        function drawX(x, y) {
+            const offset = 30;
+            ctx.strokeStyle = '#e74c3c';
+            ctx.lineWidth = 8;
+            ctx.lineCap = 'round';
+            
+            ctx.beginPath();
+            ctx.moveTo(x - offset, y - offset);
+            ctx.lineTo(x + offset, y + offset);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(x + offset, y - offset);
+            ctx.lineTo(x - offset, y + offset);
+            ctx.stroke();
+        }
+        
+        // 绘制O
+        function drawO(x, y) {
+            const radius = 35;
+            ctx.strokeStyle = '#3498db';
+            ctx.lineWidth = 8;
+            
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        
+        // 处理画布点击
+        canvas.addEventListener('click', (event) => {
+            if (!modelLoaded || gameOver || currentPlayer !== PLAYER_X) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            
+            const col = Math.floor(x / CELL_SIZE);
+            const row = Math.floor(y / CELL_SIZE);
+            
+            // 确保单元格为空
+            if (board[row][col] === EMPTY) {
+                makeMove(row, col);
+                
+                // 如果游戏未结束，则让AI走棋
+                if (!gameOver && modelLoaded) {
+                    setTimeout(makeAIMove, 400);
+                }
+            }
+        });
+        
+        // 处理玩家走棋
+        function makeMove(row, col) {
+            board[row][col] = currentPlayer;
+            gameHistory.push({...getBoardState(), lastMove: [row, col]});
+            
+            drawBoard();
+            
+            if (checkWinner() || checkDraw()) {
+                updateStats();
+                gameOver = true;
+                updateGameStatus();
+                return;
+            }
+            
+            // 切换玩家
+            currentPlayer = currentPlayer === PLAYER_X ? PLAYER_O : PLAYER_X;
+            updateGameStatus();
+            
+            if (showPredictionsCheckbox.checked && modelLoaded) {
+                updatePredictions();
+            }
+        }
+        
+        // AI走棋
+        async function makeAIMove() {
+            if (gameOver || currentPlayer !== PLAYER_O || !modelLoaded) return;
+            
+            try {
+                // 获取有效移动
+                const validMoves = getValidMoves();
+                if (validMoves.length === 0) return;
+                
+                // 评估每个可能的移动
+                let bestMove = null;
+                let bestScore = -Infinity;
+                
+                for (const move of validMoves) {
+                    // 尝试这个移动
+                    board[move.row][move.col] = PLAYER_O;
+                    
+                    // 准备输入数据
+                    const inputFeature = await prepareBoardForModel();
+                    
+                    // 还原棋盘
+                    board[move.row][move.col] = EMPTY;
+                    
+                    // 获取模型预测
+                    const prediction = await predictWithModel(inputFeature);
+                    
+                    // 计算分数（AI是O，所以我们寻找失败概率最低的移动）
+                    // 注意：这里的评分策略可能需要根据实际模型的输出调整
+                    const score = prediction[0] * 0.2 + prediction[2] * 0.6 - prediction[1] * 1.0;
+                    
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMove = move;
+                    }
+                }
+                
+                // 执行最佳移动
+                if (bestMove) {
+                    makeMove(bestMove.row, bestMove.col);
+                }
+            } catch (error) {
+                console.error('AI走棋时出错:', error);
+                gameStatus.textContent = '模型预测出错';
+            }
+        }
+        
+        // 准备模型输入数据
+        async function prepareBoardForModel() {
+            // 创建特征表示
+            // 基于您的模型训练方式，这里需要根据实际情况调整
+            // 假设模型输入是3x3x6的张量，表示3个历史状态
+            const boardFeature = new Float32Array(3 * 3 * 6);
+            
+            // 当前棋盘状态
+            for (let row = 0; row < BOARD_SIZE; row++) {
+                for (let col = 0; col < BOARD_SIZE; col++) {
+                    const index = (row * BOARD_SIZE + col) * 2;
+                    
+                    // 第一个通道：PLAYER_X的位置
+                    boardFeature[index] = board[row][col] === PLAYER_X ? 1 : 0;
+                    
+                    // 第二个通道：PLAYER_O的位置
+                    boardFeature[index + 1] = board[row][col] === PLAYER_O ? 1 : 0;
+                    
+                    // 此处可以添加更多的特征通道（如历史状态）
+                    // 简化实现，这里只使用当前状态并重复填充
+                    boardFeature[index + 2 * 9] = boardFeature[index];
+                    boardFeature[index + 2 * 9 + 1] = boardFeature[index + 1];
+                    
+                    boardFeature[index + 4 * 9] = boardFeature[index];
+                    boardFeature[index + 4 * 9 + 1] = boardFeature[index + 1];
+                }
+            }
+            
+            // 创建张量并重塑为正确的维度
+            return tf.tensor(boardFeature).reshape([1, 3, 3, 6]);
+        }
+        
+        // 使用模型预测
+        async function predictWithModel(inputTensor) {
+            if (!modelLoaded || !aiModel) {
+                throw new Error('模型未加载');
+            }
+            
+            try {
+                // 进行预测
+                const prediction = await aiModel.predict(inputTensor);
+                
+                // 获取预测值
+                const values = await prediction.data();
+                
+                // 释放张量
+                prediction.dispose();
+                inputTensor.dispose();
+                
+                return Array.from(values);
+            } catch (error) {
+                console.error('预测出错:', error);
+                throw error;
+            }
+        }
+        
+        // 更新模型预测显示
+        async function updatePredictions() {
+            if (!modelLoaded || gameOver) {
+                predictionInfo.style.display = 'none';
+                return;
+            }
+            
+            try {
+                const inputFeature = await prepareBoardForModel();
+                const prediction = await predictWithModel(inputFeature);
+                
+                // 显示预测
+                predictionInfo.style.display = 'block';
+                
+                // 更新预测条
+                const winProb = Math.round(prediction[0] * 100);
+                const lossProb = Math.round(prediction[1] * 100);
+                const drawProb = Math.round(prediction[2] * 100);
+                
+                winProbEl.style.width = `${winProb}%`;
+                winProbEl.textContent = `${winProb}%`;
+                
+                lossProbEl.style.width = `${lossProb}%`;
+                lossProbEl.textContent = `${lossProb}%`;
+                
+                drawProbEl.style.width = `${drawProb}%`;
+                drawProbEl.textContent = `${drawProb}%`;
+            } catch (error) {
+                console.error('更新预测时出错:', error);
+                predictionInfo.style.display = 'none';
+            }
+        }
+        
+        // 获取当前棋盘状态
+        function getBoardState() {
+            return {
+                board: board.map(row => [...row]),
+                currentPlayer,
+                gameOver,
+                winner
+            };
+        }
+        
+        // 获取有效的移动
+        function getValidMoves() {
+            const moves = [];
+            for (let row = 0; row < BOARD_SIZE; row++) {
+                for (let col = 0; col < BOARD_SIZE; col++) {
+                    if (board[row][col] === EMPTY) {
+                        moves.push({ row, col });
+                    }
+                }
+            }
+            return moves;
+        }
+        
+        // 检查胜者
+        function checkWinner() {
+            // 检查行
+            for (let row = 0; row < BOARD_SIZE; row++) {
+                if (board[row][0] !== EMPTY && 
+                    board[row][0] === board[row][1] && 
+                    board[row][1] === board[row][2]) {
+                    winner = board[row][0];
+                    return true;
+                }
+            }
+            
+            // 检查列
+            for (let col = 0; col < BOARD_SIZE; col++) {
+                if (board[0][col] !== EMPTY && 
+                    board[0][col] === board[1][col] && 
+                    board[1][col] === board[2][col]) {
+                    winner = board[0][col];
+                    return true;
+                }
+            }
+            
+            // 检查对角线
+            if (board[0][0] !== EMPTY && 
+                board[0][0] === board[1][1] && 
+                board[1][1] === board[2][2]) {
+                winner = board[0][0];
+                return true;
+            }
+            
+            if (board[0][2] !== EMPTY && 
+                board[0][2] === board[1][1] && 
+                board[1][1] === board[2][0]) {
+                winner = board[0][2];
+                return true;
+            }
+            
+            return false;
+        }
+        
+        // 检查平局
+        function checkDraw() {
+            for (let row = 0; row < BOARD_SIZE; row++) {
+                for (let col = 0; col < BOARD_SIZE; col++) {
+                    if (board[row][col] === EMPTY) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+        
+        // 更新游戏状态
+        function updateGameStatus() {
+            if (gameOver) {
+                if (winner === PLAYER_X) {
+                    gameStatus.textContent = '玩家获胜！';
+                } else if (winner === PLAYER_O) {
+                    gameStatus.textContent = 'AI获胜！';
+                } else {
+                    gameStatus.textContent = '平局！';
+                }
+            } else {
+                if (currentPlayer === PLAYER_X) {
+                    gameStatus.textContent = '轮到玩家走棋';
+                } else {
+                    gameStatus.textContent = '轮到AI走棋';
+                }
+            }
+        }
+        
+        // 更新统计
+        function updateStats() {
+            if (winner === PLAYER_X) {
+                stats.playerWins++;
+            } else if (winner === PLAYER_O) {
+                stats.aiWins++;
+            } else if (gameOver) {
+                stats.draws++;
+            }
+            
+            playerWinsEl.textContent = stats.playerWins;
+            aiWinsEl.textContent = stats.aiWins;
+            drawsEl.textContent = stats.draws;
+        }
+        
+        // 重置统计
+        function resetStats() {
+            stats = {
+                playerWins: 0,
+                aiWins: 0,
+                draws: 0
+            };
+            
+            playerWinsEl.textContent = stats.playerWins;
+            aiWinsEl.textContent = stats.aiWins;
+            drawsEl.textContent = stats.draws;
+        }
+        
+        // 加载模型
+        async function loadModel() {
+            const file = modelFileInput.files[0];
+            if (!file) {
+                alert('请选择模型文件');
+                return;
+            }
+            
+            try {
+                loadingIndicator.style.display = 'flex';
+                
+                // 检查文件类型并加载
+                if (file.name.endsWith('.json')) {
+                    // 加载JSON模型
+                    aiModel = await tf.loadLayersModel(tf.io.browserFiles(
+                        [file, ...Array.from(modelFileInput.files).filter(f => f.name.endsWith('.bin'))]
+                    ));
+                } else {
+                    // 尝试加载.h5或.keras模型
+                    // 注意：浏览器直接加载.h5或.keras文件可能会有问题
+                    // 这里提供一个小的模拟模型用于演示
+                    console.warn('直接加载.h5或.keras文件在浏览器中存在限制');
+                    console.warn('创建一个简单模型用于演示');
+                    
+                    // 创建一个简单的模型
+                    aiModel = tf.sequential();
+                    aiModel.add(tf.layers.conv2d({
+                        inputShape: [3, 3, 6],
+                        filters: 16,
+                        kernelSize: 2,
+                        padding: 'same',
+                        activation: 'relu'
+                    }));
+                    aiModel.add(tf.layers.flatten());
+                    aiModel.add(tf.layers.dense({
+                        units: 32,
+                        activation: 'relu'
+                    }));
+                    aiModel.add(tf.layers.dense({
+                        units: 3,
+                        activation: 'softmax'
+                    }));
+                    
+                    aiModel.compile({
+                        optimizer: 'adam',
+                        loss: 'categoricalCrossentropy',
+                        metrics: ['accuracy']
+                    });
+                }
+                
+                modelLoaded = true;
+                newGameBtn.disabled = false;
+                aiMoveBtn.disabled = false;
+                gameStatus.textContent = '模型已加载，可以开始游戏';
+                
+                // 自动开始新游戏
+                initGame();
+                
+            } catch (error) {
+                console.error('加载模型时出错:', error);
+                gameStatus.textContent = '模型加载失败';
+                alert('模型加载失败: ' + error.message);
+            } finally {
+                loadingIndicator.style.display = 'none';
+            }
+        }
+        
+        // 事件监听器
+        newGameBtn.addEventListener('click', initGame);
+        
+        aiMoveBtn.addEventListener('click', () => {
+            if (modelLoaded && !gameOver && currentPlayer === PLAYER_O) {
+                makeAIMove();
+            }
+        });
+        
+        resetStatsBtn.addEventListener('click', resetStats);
+        
+        loadModelBtn.addEventListener('click', loadModel);
+        
+        showPredictionsCheckbox.addEventListener('change', () => {
+            if (showPredictionsCheckbox.checked) {
+                updatePredictions();
+            } else {
+                predictionInfo.style.display = 'none';
+            }
+        });
+        
+        aiFirstCheckbox.addEventListener('change', () => {
+            // 只有在创建新游戏时才会应用此设置
+        });
+        
+        // 初始化游戏界面
+        drawBoard();
+    </script>
+</body>
+</html>
