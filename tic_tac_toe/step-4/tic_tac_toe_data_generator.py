@@ -50,10 +50,12 @@ class AdvancedTicTacToeDataGenerator:
             board_current[:, :, 1] = (game.board == 2).astype(np.float32)
             
             # Save the current board state before making a move
+            # Convert NumPy array to standard Python list to avoid JSON serialization issues
+            board_list = game.board.tolist() if isinstance(game.board, np.ndarray) else game.board
             moves_history.append({
-                "board": game.board.tolist(),  # Avoid unnecessary copy
-                "current_player": current_player,
-                "move_number": move_count
+                "board": board_list,  
+                "current_player": int(current_player),  # Ensure Python native type
+                "move_number": int(move_count)          # Ensure Python native type
             })
             
             # Select move using the appropriate agent
@@ -71,7 +73,9 @@ class AdvancedTicTacToeDataGenerator:
             move_count += 1
             
             # Record the move outcome
-            moves_history[-1]["move_made"] = list(move)
+            # Convert the move to Python native list to avoid JSON serialization issues
+            move_list = [int(move[0]), int(move[1])] if isinstance(move[0], np.integer) or isinstance(move[1], np.integer) else list(move)
+            moves_history[-1]["move_made"] = move_list
             
             # Create label: [win, loss, draw] - use array instead of list for better performance
             if game.game_over:
@@ -87,12 +91,12 @@ class AdvancedTicTacToeDataGenerator:
             
             training_data.append((input_feature, label, current_player, move_count))
         
-        # Record the game outcome
+        # Record the game outcome - ensuring all values are Python native types
         game_history = {
-            "game_id": game_id,
+            "game_id": int(game_id),
             "moves": moves_history,
-            "winner": game.winner,
-            "total_moves": move_count,
+            "winner": int(game.winner) if hasattr(game.winner, 'item') else game.winner,
+            "total_moves": int(move_count),
             "metadata": {
                 "player1_agent": agents[0].__class__.__name__,
                 "player2_agent": agents[1].__class__.__name__,
@@ -123,7 +127,7 @@ class AdvancedTicTacToeDataGenerator:
         if n_workers is None:
             n_workers = mp.cpu_count()
         
-        n_workers = min(n_workers, num_games)  # Don't create more workers than games
+        n_workers = min(n_workers, num_games, 32)  # Limit max workers - too many can cause overhead
         
         print(f"Generating {num_games} games using {n_workers} CPU workers")
         
@@ -135,38 +139,106 @@ class AdvancedTicTacToeDataGenerator:
         all_training_data = []
         all_game_histories = []
         
-        batch_size = 1000  # Process games in batches to reduce memory usage
-        for batch_start in range(0, num_games, batch_size):
-            batch_end = min(batch_start + batch_size, num_games)
-            batch_size_actual = batch_end - batch_start
-            
-            with tqdm(total=batch_size_actual, desc=f"Batch {batch_start//batch_size + 1}") as pbar:
-                # Use concurrent.futures for better exception handling and progress tracking
-                with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as executor:
-                    # Submit all jobs
-                    future_to_game_id = {
-                        executor.submit(generate_game_partial, game_id): game_id 
-                        for game_id in range(batch_start, batch_end)
-                    }
-                    
-                    # Process results as they complete
-                    for future in concurrent.futures.as_completed(future_to_game_id):
-                        game_id = future_to_game_id[future]
-                        try:
-                            training_data, game_history = future.result()
-                            all_training_data.extend(training_data)
-                            all_game_histories.append(game_history)
-                            pbar.update(1)
-                        except Exception as e:
-                            print(f"Game {game_id} generated an exception: {e}")
-            
-            # Save the batch to disk to free memory
-            if batch_end % 1000 == 0 or batch_end == num_games:
-                batch_id = batch_end // 1000
-                self.save_json_data(all_game_histories[-batch_size_actual:], batch_id=batch_id-1)
+        # Process games in batches to reduce memory usage
+        batch_size = min(1000, max(100, num_games // 10))  # Adjust batch size based on total games
+        
+        try:
+            for batch_start in range(0, num_games, batch_size):
+                batch_end = min(batch_start + batch_size, num_games)
+                batch_size_actual = batch_end - batch_start
+                batch_training_data = []
+                batch_game_histories = []
+                
+                with tqdm(total=batch_size_actual, desc=f"Batch {batch_start//batch_size + 1}") as pbar:
+                    # Use concurrent.futures for better exception handling and progress tracking
+                    with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as executor:
+                        # Submit all jobs
+                        future_to_game_id = {
+                            executor.submit(generate_game_partial, game_id): game_id 
+                            for game_id in range(batch_start, batch_end)
+                        }
+                        
+                        # Process results as they complete
+                        for future in concurrent.futures.as_completed(future_to_game_id):
+                            game_id = future_to_game_id[future]
+                            try:
+                                training_data, game_history = future.result()
+                                batch_training_data.extend(training_data)
+                                batch_game_histories.append(game_history)
+                                pbar.update(1)
+                            except Exception as e:
+                                print(f"Game {game_id} generated an exception: {e}")
+                                # Continue with other games
+                
+                # Extend main data with batch data
+                all_training_data.extend(batch_training_data)
+                all_game_histories.extend(batch_game_histories)
+                
+                # Save the batch to disk to free memory
+                try:
+                    batch_id = batch_start // batch_size + 1
+                    self.save_json_data(batch_game_histories, batch_id=batch_id)
+                except Exception as e:
+                    print(f"Error saving batch {batch_id}: {e}")
+                    # Try saving with a simpler approach
+                    try:
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        filename = f"tic_tac_toe_games_backup_{timestamp}_batch_{batch_id}.json"
+                        file_path = os.path.join(self.json_dir, filename)
+                        
+                        # Convert all NumPy types to Python types before saving
+                        safe_histories = []
+                        for game in batch_game_histories:
+                            # Deep copy with NumPy conversion
+                            game_copy = {
+                                "game_id": int(game["game_id"]) if isinstance(game["game_id"], np.integer) else game["game_id"],
+                                "winner": int(game["winner"]) if isinstance(game["winner"], np.integer) else game["winner"],
+                                "total_moves": int(game["total_moves"]) if isinstance(game["total_moves"], np.integer) else game["total_moves"],
+                                "metadata": game["metadata"],
+                                "moves": []
+                            }
+                            
+                            # Process moves carefully
+                            for move in game["moves"]:
+                                safe_move = {}
+                                for k, v in move.items():
+                                    if k == "board" and isinstance(v, np.ndarray):
+                                        safe_move[k] = v.tolist()
+                                    elif isinstance(v, np.integer):
+                                        safe_move[k] = int(v)
+                                    elif isinstance(v, np.floating):
+                                        safe_move[k] = float(v)
+                                    elif isinstance(v, np.ndarray):
+                                        safe_move[k] = v.tolist()
+                                    else:
+                                        safe_move[k] = v
+                                game_copy["moves"].append(safe_move)
+                                
+                            safe_histories.append(game_copy)
+                            
+                        with open(file_path, 'w') as f:
+                            json.dump({"games": safe_histories, "metadata": {"num_games": len(safe_histories)}}, f)
+                        print(f"Saved backup JSON data to {file_path}")
+                    except Exception as backup_error:
+                        print(f"Backup save also failed: {backup_error}")
+                
+                # Clear batch data to free memory
+                batch_training_data = []
+                batch_game_histories = []
+        
+        except Exception as e:
+            print(f"Error during data generation: {e}")
+            # Continue to post-processing with whatever data was collected
+        
+        print(f"Collected {len(all_training_data)} training examples from {len(all_game_histories)} games")
         
         # Post-process the training data to update non-terminal state labels
-        processed_data = self.post_process_data(all_training_data)
+        try:
+            processed_data = self.post_process_data(all_training_data)
+        except Exception as e:
+            print(f"Error during post-processing: {e}")
+            # If post-processing fails, return unprocessed data
+            processed_data = [(feature, label) for feature, label, _, _ in all_training_data]
         
         return processed_data, all_game_histories
 
@@ -187,7 +259,10 @@ class AdvancedTicTacToeDataGenerator:
         game_move_dict = {}
         for item in training_data:
             feature, label, player, move_count = item
-            game_key = (player, move_count // 10)  # Group by player and approximate game
+            # Ensure player and move_count are hashable Python types, not NumPy types
+            player_key = int(player) if isinstance(player, np.integer) else player
+            move_count_key = int(move_count // 10) if isinstance(move_count, np.integer) else move_count // 10
+            game_key = (player_key, move_count_key)  # Group by player and approximate game
             
             if game_key not in game_move_dict:
                 game_move_dict[game_key] = []
@@ -195,7 +270,10 @@ class AdvancedTicTacToeDataGenerator:
             game_move_dict[game_key].append((feature, label, player, move_count))
         
         # Use ThreadPoolExecutor for post-processing which is less CPU-intensive
-        with concurrent.futures.ThreadPoolExecutor() as executor:
+        num_workers = min(mp.cpu_count(), len(game_move_dict))
+        print(f"Using {num_workers} threads for post-processing")
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
             futures = []
             for game_moves in game_move_dict.values():
                 futures.append(executor.submit(self._process_single_game, game_moves))
@@ -210,35 +288,53 @@ class AdvancedTicTacToeDataGenerator:
         """Process a single game's moves for backpropagation of rewards"""
         result = []
         
-        # Sort moves by move count
-        game_moves.sort(key=lambda x: x[3])
-        
-        # Get terminal state labels
-        terminal_labels = {}
-        for feature, label, player, move_count in game_moves:
-            # Check if this is a terminal state
-            if label[0] > 0.9 or label[1] > 0.9 or label[2] > 0.9:  # More efficient than checking exact equality
-                terminal_labels[player] = label
-        
-        # Use vectorized operations where possible
-        discount_factor = 0.9
-        for feature, label, player, move_count in game_moves:
-            # Check if this is not a terminal state
-            if not (label[0] > 0.9 or label[1] > 0.9 or label[2] > 0.9):
-                if player in terminal_labels:
-                    # Apply discount factor based on distance from terminal state
-                    steps_from_terminal = max(0, game_moves[-1][3] - move_count)
-                    discount = discount_factor ** steps_from_terminal
-                    # Vectorized multiplication
-                    new_label = terminal_labels[player] * discount
-                    result.append((feature, new_label))
+        # Handle empty game_moves gracefully
+        if not game_moves:
+            return result
+            
+        try:
+            # Sort moves by move count
+            game_moves.sort(key=lambda x: x[3])
+            
+            # Get terminal state labels
+            terminal_labels = {}
+            for feature, label, player, move_count in game_moves:
+                # Convert player to a hashable type if it's a NumPy integer
+                player_key = int(player) if isinstance(player, np.integer) else player
+                
+                # Check if this is a terminal state
+                if label[0] > 0.9 or label[1] > 0.9 or label[2] > 0.9:  # More efficient than checking exact equality
+                    terminal_labels[player_key] = label
+            
+            # Use vectorized operations where possible
+            discount_factor = 0.9
+            for feature, label, player, move_count in game_moves:
+                # Convert player and move_count to standard Python types
+                player_key = int(player) if isinstance(player, np.integer) else player
+                move_count_val = int(move_count) if isinstance(move_count, np.integer) else move_count
+                last_move = int(game_moves[-1][3]) if isinstance(game_moves[-1][3], np.integer) else game_moves[-1][3]
+                
+                # Check if this is not a terminal state
+                if not (label[0] > 0.9 or label[1] > 0.9 or label[2] > 0.9):
+                    if player_key in terminal_labels:
+                        # Apply discount factor based on distance from terminal state
+                        steps_from_terminal = max(0, last_move - move_count_val)
+                        discount = discount_factor ** steps_from_terminal
+                        # Vectorized multiplication
+                        new_label = terminal_labels[player_key] * discount
+                        result.append((feature, new_label))
+                    else:
+                        # If no terminal state for this player, use original label
+                        result.append((feature, label))
                 else:
-                    # If no terminal state for this player, use original label
+                    # Use original label for terminal states
                     result.append((feature, label))
-            else:
-                # Use original label for terminal states
+        except Exception as e:
+            print(f"Error processing game: {e}")
+            # In case of error, return the original data instead of failing completely
+            for feature, label, _, _ in game_moves:
                 result.append((feature, label))
-        
+                
         return result
 
     def save_npz_data(self, training_data, train_ratio=0.8, val_ratio=0.1):
@@ -322,6 +418,17 @@ class AdvancedTicTacToeDataGenerator:
         filename = f"tic_tac_toe_games_{timestamp}{batch_str}.json"
         file_path = os.path.join(self.json_dir, filename)
         
+        # Create a custom JSON encoder to handle NumPy types
+        class NumpyEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, np.integer):
+                    return int(obj)
+                elif isinstance(obj, np.floating):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                return super(NumpyEncoder, self).default(obj)
+        
         # Use a more memory-efficient approach for writing large JSON files
         with open(file_path, 'w') as f:
             # Write the opening
@@ -329,7 +436,8 @@ class AdvancedTicTacToeDataGenerator:
             
             # Write each game separately
             for i, game in enumerate(game_histories):
-                game_json = json.dumps(game, indent=2)
+                # Convert NumPy types to Python native types
+                game_json = json.dumps(game, indent=2, cls=NumpyEncoder)
                 
                 # Adjust indentation
                 game_json = '    ' + game_json.replace('\n', '\n    ')
