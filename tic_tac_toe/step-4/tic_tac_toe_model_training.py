@@ -180,9 +180,13 @@ def compile_model(model, learning_rate=3e-4, mixed_precision=False):
 
 def create_callbacks(output_dir, model_name, patience=15):
     """创建训练回调"""
-    # 创建模型目录
+    # 创建模型目录及子目录
     model_dir = os.path.join(output_dir, model_name)
     os.makedirs(model_dir, exist_ok=True)
+
+    # 创建日志目录
+    logs_dir = os.path.join(model_dir, 'logs')
+    os.makedirs(logs_dir, exist_ok=True)
 
     # 基本回调
     callbacks = [
@@ -213,11 +217,11 @@ def create_callbacks(output_dir, model_name, patience=15):
         )
     except:
         print("警告: 无法添加 ReduceLROnPlateau 回调。")
-    
+
     try:
         callbacks.append(
             TensorBoard(
-                log_dir=os.path.join(model_dir, 'logs'),
+                log_dir=logs_dir,
                 histogram_freq=1,
                 write_graph=True
             )
@@ -392,7 +396,11 @@ def evaluate_model(model, X_test, y_test, output_dir, model_name):
 def save_model_summary(model, output_dir, model_name):
     """将模型架构摘要保存到文本文件"""
     try:
-        summary_path = os.path.join(output_dir, model_name, 'model_summary.txt')
+        # 确保目录存在
+        model_dir = os.path.join(output_dir, model_name)
+        os.makedirs(model_dir, exist_ok=True)
+
+        summary_path = os.path.join(model_dir, 'model_summary.txt')
 
         # 重定向 stdout 以捕获摘要
         import io
@@ -408,8 +416,11 @@ def save_model_summary(model, output_dir, model_name):
         sys.stdout = original_stdout
         with open(summary_path, 'w') as f:
             f.write(captured_output.getvalue())
+
+        print(f"模型摘要已保存到 {summary_path}")
     except Exception as e:
         print(f"保存模型摘要时出错: {str(e)}")
+        print(f"尝试确保目录 {os.path.join(output_dir, model_name)} 存在")
 
 def build_ensemble_model(input_shape, dropout_rate=0.2):
     """构建 CNN 和 Transformer 的集成模型"""
