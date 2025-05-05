@@ -196,8 +196,8 @@ def create_callbacks(output_dir, model_name, patience=15):
             restore_best_weights=True,
             verbose=1
         ),
-        ModelCheckpoint(
-            os.path.join(model_dir, 'best_model.h5'),  # 使用 .h5 而不是 .keras 以提高兼容性
+        checkpoint = ModelCheckpoint(
+            os.path.join(model_dir, 'best_model.keras'),
             save_best_only=True,
             monitor='val_loss',
             verbose=1
@@ -645,7 +645,7 @@ def main():
 
         # 尝试保存模型
         try:
-            model_path = os.path.join(args.output_dir, model_name, 'final_model.h5')
+            model_path = os.path.join(args.output_dir, model_name, 'final_model.keras')
             model.save(model_path)
             print(f"模型已保存到 {model_path}")
         except Exception as e:
