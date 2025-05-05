@@ -1,0 +1,79 @@
+body {
+    font-family: Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background-color: #f5f5f5;
+    padding: 20px;
+}
+h1 {
+    color: #333;
+    margin-bottom: 10px;
+}
+.game-info {
+    margin-bottom: 15px;
+    font-size: 18px;
+    color: #555;
+}
+.ai-controls {
+    margin-bottom: 15px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+#aiDifficulty {
+    padding: 8px;
+    font-size: 16px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+}
+#aiDifficulty:disabled {
+    background-color: #f5f5f5;
+    color: #999;
+}
+.canvas-container {
+    position: relative;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+    margin-bottom: 15px;
+}
+#gameCanvas {
+    background-color: #DEB887;
+    display: block;
+}
+.controls {
+    margin-top: 10px;
+    display: flex;
+    gap: 10px;
+}
+button {
+    padding: 8px 16px;
+    font-size: 16px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+button:hover {
+    background-color: #45a049;
+}
+#toggleAIButton {
+    background-color: #2196F3;
+}
+#toggleAIButton:hover {
+    background-color: #0b7dda;
+}
+.result-message {
+    margin-top: 15px;
+    font-size: 20px;
+    font-weight: bold;
+    min-height: 30px;
+}
+.black {
+    color: #000;
+}
+.white {
+    color: #fff;
+    text-shadow: 0 0 2px #000;
+}

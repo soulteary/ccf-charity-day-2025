@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>五子棋人机对战</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>五子棋人机对战</h1>
+    <div class="game-info">
+        当前玩家: <span id="currentPlayer" class="black">黑子</span>
+    </div>
+    <div class="ai-controls">
+        <button id="toggleAIButton">开启AI</button>
+        <select id="aiDifficulty" disabled>
+            <option value="easy">简单</option>
+            <option value="medium" selected>中等</option>
+            <option value="hard">困难</option>
+        </select>
+    </div>
+    <div class="canvas-container">
+        <canvas id="gameCanvas" width="600" height="600"></canvas>
+    </div>
+    <div class="controls">
+        <button id="restartButton">重新开始</button>
+        <button id="undoButton">悔棋</button>
+    </div>
+    <div id="resultMessage" class="result-message"></div>
+    <script src="script.js"></script>
+</body>
+</html>
