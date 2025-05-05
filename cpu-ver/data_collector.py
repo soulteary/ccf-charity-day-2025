@@ -269,12 +269,13 @@ class DataCollector:
 
         return all_training_data, stats_file
 
-    def save_training_data_to_npz(self, training_data, file_name=None):
-        """将训练数据保存为NPZ文件，可在采集完数据后手动调用
+    def save_training_data_to_npz(self, training_data, file_name=None, train_ratio=0.8):
+        """将训练数据保存为NPZ文件，可在采集完数据后手动调用。
 
         Args:
             training_data: 从generate_self_play_data生成的训练数据列表
             file_name: 自定义文件名（可选）
+            train_ratio: 训练数据占总数据比例
 
         Returns:
             str: NPZ文件路径
@@ -295,28 +296,39 @@ class DataCollector:
 
         training_data_file = os.path.join(training_data_dir, file_name)
 
-        # 转换为NumPy数组
-        boards = []
-        moves = []
-        labels = []
-
+        # 准备数据
+        boards, moves, labels = [], [], []
         for sample in training_data:
             boards.append(sample["board_state"])
             move = sample["move"]
-            # 使用一维编码表示移动位置
             board_size = sample["board_state"].shape[0]
             move_encoded = move[0] * board_size + move[1]
             moves.append(move_encoded)
             labels.append(sample["label"])
 
-        # 保存为NPZ文件
+        # 拆分训练集和验证集
+        total_samples = len(boards)
+        split_index = int(total_samples * train_ratio)
+
+        train_boards = np.array(boards[:split_index])
+        val_boards = np.array(boards[split_index:])
+        train_moves = np.array(moves[:split_index])
+        val_moves = np.array(moves[split_index:])
+        train_labels = np.array(labels[:split_index])
+        val_labels = np.array(labels[split_index:])
+
+        # 保存为 NPZ 文件，明确使用 train/val 前缀
         np.savez(
             training_data_file,
-            boards=np.array(boards),
-            moves=np.array(moves),
-            labels=np.array(labels)
+            train_boards=train_boards,
+            val_boards=val_boards,
+            train_moves=train_moves,
+            val_moves=val_moves,
+            train_labels=train_labels,
+            val_labels=val_labels
         )
 
-        print(f"保存了 {len(training_data)} 个训练样本到 {training_data_file}")
+        print(f"保存了 {total_samples} 个训练样本到 {training_data_file}")
+        print(f"训练集样本数: {len(train_boards)}, 验证集样本数: {len(val_boards)}")
 
         return training_data_file
