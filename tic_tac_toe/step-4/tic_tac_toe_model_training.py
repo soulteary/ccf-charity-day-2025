@@ -196,7 +196,7 @@ def create_callbacks(output_dir, model_name, patience=15):
             restore_best_weights=True,
             verbose=1
         ),
-        checkpoint = ModelCheckpoint(
+        ModelCheckpoint(
             os.path.join(model_dir, 'best_model.keras'),
             save_best_only=True,
             monitor='val_loss',
